@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan de Vuelo Interactivo: Guaymaral (SKGY) a Girardot (SKGI)</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Visualizador interactivo de plan de vuelo VFR desde el Aeropuerto Guaymaral (SKGY) hasta el Aeropuerto Santiago Vila (SKGI) de Girardot. Rumbos, altitudes y simulación.">
+  <meta name="keywords" content="Plan de Vuelo, SKGY, SKGI, Colombia, Aviación, VFR, Guaymaral, Girardot, Leaflet, Simulación">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+  
+  <style>
+    :root {
+      --bg-dark: #0a0e17;
+      --bg-card: rgba(18, 26, 43, 0.7);
+      --border-glow: rgba(0, 210, 255, 0.2);
+      --accent-cyan: #00d2ff;
+      --accent-orange: #ff9f1c;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --font-sans: 'Outfit', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      --glass-blur: blur(12px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--accent-cyan) var(--bg-dark);
+    }
+
+    /* Custom Scrollbars */
+    *::-webkit-scrollbar {
+      width: 6px;
+    }
+    *::-webkit-scrollbar-track {
+      background: var(--bg-dark);
+    }
+    *::-webkit-scrollbar-thumb {
+      background-color: var(--accent-cyan);
+      border-radius: 3px;
+      border: 1px solid var(--bg-dark);
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+    }
+
+    /* Left Sidebar */
+    .sidebar {
+      background: linear-gradient(135deg, rgba(10, 14, 23, 0.95) 0%, rgba(16, 23, 38, 0.95) 100%);
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+      z-index: 10;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+      overflow-y: auto;
+    }
+
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .header-logo svg {
+      width: 2rem;
+      height: 2rem;
+      fill: var(--accent-cyan);
+      filter: drop-shadow(0 0 8px var(--accent-cyan));
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      background: linear-gradient(90deg, #fff 0%, var(--accent-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .route-badge {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(0, 210, 255, 0.1);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--accent-cyan);
+      width: fit-content;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-value {
+      font-size: 1.1rem;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--text-main);
+    }
+
+    /* Simulation Control Button */
+    .btn-simulate {
+      background: linear-gradient(135deg, var(--accent-cyan) 0%, #0077ff 100%);
+      color: #020617;
+      border: none;
+      padding: 0.85rem 1.25rem;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);
+    }
+
+    .btn-simulate:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 210, 255, 0.5);
+      filter: brightness(1.1);
+    }
+
+    .btn-simulate:active {
+      transform: translateY(0);
+    }
+
+    /* Waypoints Timeline List */
+    .waypoint-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+
+    .waypoint-item {
+      background: var(--bg-card);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 0.85rem;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .waypoint-item::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: var(--accent-cyan);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .waypoint-item:hover, .waypoint-item.active {
+      background: rgba(18, 26, 43, 0.9);
+      border-color: rgba(0, 210, 255, 0.4);
+      transform: translateX(4px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .waypoint-item:hover::before, .waypoint-item.active::before {
+      opacity: 1;
+    }
+
+    .waypoint-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.35rem;
+    }
+
+    .waypoint-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #fff;
+    }
+
+    .waypoint-alt {
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      color: var(--accent-orange);
+      background: rgba(255, 159, 28, 0.1);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+    }
+
+    .waypoint-summary {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.3;
+    }
+
+    /* Main Content Container (Map + Instruments) */
+    .map-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-dark);
+    }
+
+    /* Floating Cockpit Instrument Panel */
+    .cockpit-panel {
+      position: absolute;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      width: 450px;
+      background: var(--bg-card);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 1.25rem;
+      z-index: 1000;
+      box-shadow: var(--glass-shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .cockpit-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.5rem;
+    }
+
+    .cockpit-title {
+      font-size: 0.9rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .cockpit-freq {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--accent-orange);
+      background: rgba(255, 159, 28, 0.1);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+    }
+
+    .cockpit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .instrument {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      padding: 0.6rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .instrument-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+
+    .instrument-value {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 1.1rem;
+      color: #fff;
+    }
+
+    .instrument-value span {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-left: 0.1rem;
+    }
+
+    .cockpit-description {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+      background: rgba(255, 255, 255, 0.01);
+      border-radius: 8px;
+      padding: 0.5rem;
+      border-left: 3px solid var(--accent-cyan);
+    }
+
+    /* Altitude Chart (Elevation profile widget) */
+    .profile-panel {
+      position: absolute;
+      top: 1.5rem;
+      right: 1.5rem;
+      width: 450px;
+      height: 160px;
+      background: var(--bg-card);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 0.75rem;
+      z-index: 1000;
+      box-shadow: var(--glass-shadow);
+    }
+
+    .profile-title {
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      padding-left: 0.25rem;
+    }
+
+    #profileChart {
+      width: 100%;
+      height: 110px !important;
+    }
+
+    /* Custom Leaflet Map adjustments */
+    .leaflet-popup-content-wrapper {
+      background: rgba(10, 14, 23, 0.9) !important;
+      backdrop-filter: var(--glass-blur) !important;
+      border: 1px solid rgba(0, 210, 255, 0.3) !important;
+      color: var(--text-main) !important;
+      border-radius: 10px !important;
+      font-family: var(--font-sans) !important;
+    }
+
+    .leaflet-popup-tip {
+      background: rgba(10, 14, 23, 0.9) !important;
+    }
+
+    /* Pulsing animated Marker CSS */
+    .custom-marker-dot {
+      width: 12px;
+      height: 12px;
+      background-color: var(--accent-cyan);
+      border: 2px solid #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 10px var(--accent-cyan);
+      transition: all 0.25s ease;
+    }
+
+    .custom-marker-dot:hover {
+      background-color: var(--accent-orange);
+      box-shadow: 0 0 15px var(--accent-orange);
+      transform: translate(-50%, -50%) scale(1.3);
+    }
+
+    .custom-marker-pulse {
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--accent-cyan);
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+      pointer-events: none;
+    }
+
+    @keyframes pulse-ring {
+      0% {
+        transform: translate(-50%, -50%) scale(0.3);
+        opacity: 0.9;
+      }
+      80%, 100% {
+        transform: translate(-50%, -50%) scale(1.5);
+        opacity: 0;
+      }
+    }
+
+    /* Aircraft Simulation Plane Icon Marker styling */
+    .plane-marker-icon {
+      transition: transform 0.1s linear;
+    }
+
+    /* Floating Legend */
+    .map-legend {
+      position: absolute;
+      bottom: 1.5rem;
+      left: 1.5rem;
+      background: var(--bg-card);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 0.5rem 0.75rem;
+      z-index: 1000;
+      font-size: 0.7rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .legend-color {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    /* Top stats dashboard on map */
+    .top-instrument-bar {
+      position: absolute;
+      top: 1.5rem;
+      left: 60px; /* shift to avoid Leaflet zoom controls */
+      display: flex;
+      gap: 0.75rem;
+      z-index: 1000;
+    }
+
+    .bar-stat {
+      background: var(--bg-card);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 0.4rem 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    .bar-stat span {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--accent-cyan);
+    }
+
+    /* UI Responsive */
+    @media (max-width: 1024px) {
+      body {
+        grid-template-columns: 1fr;
+        grid-template-rows: 250px 1fr;
+        overflow: auto;
+      }
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        height: 250px;
+      }
+      .map-container {
+        height: calc(100vh - 250px);
+      }
+      .cockpit-panel, .profile-panel {
+        width: 320px;
+        font-size: 0.8rem;
+      }
+    }
+  </style>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="header-logo">
+      <svg viewBox="0 0 24 24">
+        <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z"/>
+      </svg>
+      <h1>Navegación VFR</h1>
+    </div>
+    
+    <div class="route-badge">SKGY ✈ SKGI | COLOMBIA</div>
+    
+    <!-- Flight Summary Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Dist. Total</span>
+        <span class="stat-value">63.5 NM</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Tiempo Est.</span>
+        <span class="stat-value">~38 min</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Combustible</span>
+        <span class="stat-value">~4.5 Gal</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Declinación</span>
+        <span class="stat-value">8.7° W</span>
+      </div>
+    </div>
+
+    <!-- Simulación Button -->
+    <button class="btn-simulate" id="start-simulation">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+      </svg>
+      Iniciar Simulación VFR
+    </button>
+
+    <!-- Paradas List -->
+    <div class="waypoint-list" id="waypoints-container">
+      <!-- Generated dynamically -->
+    </div>
+  </aside>
+
+  <!-- Map Section -->
+  <div class="map-container">
+    <div id="map"></div>
+
+    <!-- Top instruments bar -->
+    <div class="top-instrument-bar">
+      <div class="bar-stat">Frec. Emergencia: <span>121.5 MHz</span></div>
+      <div class="bar-stat">Alt. Máxima: <span>10,500 ft</span></div>
+      <div class="bar-stat">Espacio: <span>VFR No Controlado / TMA</span></div>
+    </div>
+
+    <!-- Profile Panel -->
+    <div class="profile-panel">
+      <div class="profile-title">Perfil de Altitud (Vuelo VFR)</div>
+      <canvas id="profileChart"></canvas>
+    </div>
+
+    <!-- Cockpit Panel -->
+    <div class="cockpit-panel" id="cockpit">
+      <div class="cockpit-header">
+        <div class="cockpit-title" id="ck-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-cyan)">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+          </svg>
+          Seleccione una parada
+        </div>
+        <div class="cockpit-freq" id="ck-freq">-</div>
+      </div>
+      
+      <div class="cockpit-grid">
+        <div class="instrument">
+          <div class="instrument-label">Rumbo Verdadero</div>
+          <div class="instrument-value" id="ck-th">-</div>
+        </div>
+        <div class="instrument">
+          <div class="instrument-label">Rumbo Magnético</div>
+          <div class="instrument-value" id="ck-mh">-</div>
+        </div>
+        <div class="instrument">
+          <div class="instrument-label">Dist. Sgte. Tramo</div>
+          <div class="instrument-value" id="ck-dist">-</div>
+        </div>
+      </div>
+
+      <div class="cockpit-grid" style="margin-top:-0.25rem">
+        <div class="instrument">
+          <div class="instrument-label">Latitud</div>
+          <div class="instrument-value" id="ck-lat" style="font-size:0.9rem">-</div>
+        </div>
+        <div class="instrument">
+          <div class="instrument-label">Longitud</div>
+          <div class="instrument-value" id="ck-lon" style="font-size:0.9rem">-</div>
+        </div>
+        <div class="instrument">
+          <div class="instrument-label">Altitud Sugerida</div>
+          <div class="instrument-value" id="ck-alt" style="color: var(--accent-orange);">-</div>
+        </div>
+      </div>
+
+      <div class="cockpit-description" id="ck-desc">
+        Pase el cursor sobre los marcadores o los puntos en el panel izquierdo para ver los rumbos de vuelo correspondientes y los detalles técnicos de navegación.
+      </div>
+    </div>
+
+    <!-- Map Legend -->
+    <div class="map-legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: var(--accent-cyan);"></div>
+        <span>Ruta Planeada (Línea VFR)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: var(--accent-orange); width:8px; height:8px; border-radius:50%"></div>
+        <span>Aeródromos de Operación</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #ef4444; width:8px; height:8px; border-radius:50%"></div>
+        <span>Puntos de Reporte Visual</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+  <script>
+    // Waypoints Data
+    const waypoints = [
+      {
+        id: "skgy",
+        name: "Guaymaral (SKGY)",
+        lat: 4.812222,
+        lon: -74.065000,
+        alt: 8300,
+        type: "airport",
+        desc: "Aeropuerto de aviación general al norte de Bogotá. Punto de partida de nuestra travesía. Frecuencia de Torre activa para despegar.",
+        freq: "Torre Guaymaral: 118.8 MHz",
+        next_th: "266.7°",
+        next_mh: "275.4°",
+        next_dist: "2.3 NM"
+      },
+      {
+        id: "cota",
+        name: "Cota",
+        lat: 4.810000,
+        lon: -74.103333,
+        alt: 8500,
+        type: "reporting",
+        desc: "Municipio ubicado al pie del cerro Majuy. Punto de referencia visual inicial en la Sabana. Mantenga altitud de seguridad.",
+        freq: "Bogotá Info: 126.9 MHz",
+        next_th: "303.4°",
+        next_mh: "312.1°",
+        next_dist: "3.1 NM"
+      },
+      {
+        id: "tenjo",
+        name: "Tenjo",
+        lat: 4.838333,
+        lon: -74.146389,
+        alt: 9500,
+        type: "reporting",
+        desc: "Valle interior en el costado occidental de la sabana. Inicio de ascenso para el franqueo de relieve montañoso.",
+        freq: "Bogotá Info: 126.9 MHz",
+        next_th: "277.5°",
+        next_mh: "286.2°",
+        next_dist: "6.9 NM"
+      },
+      {
+        id: "elrosal",
+        name: "El Rosal",
+        lat: 4.853333,
+        lon: -74.260833,
+        alt: 10500,
+        type: "reporting",
+        desc: "Límite del Sector Whiskey (Salida normalizada). Mantenga los ojos abiertos por tráficos ingresando a la sabana.",
+        freq: "Bogotá Info: 126.9 MHz",
+        next_th: "214.0°",
+        next_mh: "222.7°",
+        next_dist: "9.0 NM"
+      },
+      {
+        id: "bojaca",
+        name: "Bojacá",
+        lat: 4.729444,
+        lon: -74.344722,
+        alt: 10500,
+        type: "reporting",
+        desc: "Municipio histórico de la sabana. Último punto alto de nivel de vuelo antes de iniciar el descenso hacia el cañón occidental.",
+        freq: "Bogotá Info: 126.9 MHz",
+        next_th: "230.3°",
+        next_mh: "239.0°",
+        next_dist: "9.3 NM"
+      },
+      {
+        id: "lamesa",
+        name: "La Mesa",
+        lat: 4.630833,
+        lon: -74.463889,
+        alt: 8500,
+        type: "reporting",
+        desc: "Población sobre meseta. Puerta de descenso geográfico. La temperatura exterior empieza a aumentar sensiblemente.",
+        freq: "Bogotá Info: 126.9 MHz",
+        next_th: "228.9°",
+        next_mh: "237.6°",
+        next_dist: "10.2 NM"
+      },
+      {
+        id: "apulo",
+        name: "Apulo",
+        lat: 4.519167,
+        lon: -74.592500,
+        alt: 6500,
+        type: "reporting",
+        desc: "Ubicado en el cañón del río Apulo. Reporte su altitud y mantenga separación con las estribaciones montañosas.",
+        freq: "Bogotá Info: 126.9 MHz",
+        next_th: "215.5°",
+        next_mh: "224.2°",
+        next_dist: "4.4 NM"
+      },
+      {
+        id: "tocaima",
+        name: "Tocaima",
+        lat: 4.459444,
+        lon: -74.635278,
+        alt: 4500,
+        type: "reporting",
+        desc: "Municipio de clima cálido. Punto de reporte obligatorio antes del tramo final y entrada al llano de Girardot.",
+        freq: "Bogotá Info: 126.75 MHz",
+        next_th: "233.0°",
+        next_mh: "241.7°",
+        next_dist: "18.3 NM"
+      },
+      {
+        id: "skgi",
+        name: "Santiago Vila (SKGI)",
+        lat: 4.276111,
+        lon: -74.879167,
+        alt: 900,
+        type: "airport",
+        desc: "Aeropuerto de destino en Flandes/Girardot. Incorporación al circuito de tránsito (viento en cola izquierda/derecha) y aterrizaje.",
+        freq: "Vila Torre: 118.35 MHz",
+        next_th: "Destino",
+        next_mh: "Destino",
+        next_dist: "Final"
+      }
+    ];
+
+    // Initialize Map centered in Colombia Cundinamarca
+    const map = L.map('map', {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([4.57, -74.45], 10);
+
+    // Dark Mode CartoDB tiles
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 18,
+      minZoom: 8
+    }).addTo(map);
+
+    // Add Route Polyline with beautiful glow
+    const routeCoords = waypoints.map(w => [w.lat, w.lon]);
+    
+    const glowLine = L.polyline(routeCoords, {
+      color: 'var(--accent-cyan)',
+      weight: 8,
+      opacity: 0.15
+    }).addTo(map);
+
+    const mainLine = L.polyline(routeCoords, {
+      color: 'var(--accent-cyan)',
+      weight: 3,
+      opacity: 0.85,
+      dashArray: '5, 8'
+    }).addTo(map);
+
+    // Fit map bounds to show the entire route with padding
+    map.fitBounds(mainLine.getBounds(), { padding: [50, 50] });
+
+    // Store custom markers references
+    const markerInstances = {};
+
+    // Custom Icon Generator for Leaflet
+    function createCustomIcon(type, isActive = false) {
+      const color = isActive ? 'var(--accent-orange)' : (type === 'airport' ? 'var(--accent-orange)' : 'var(--accent-cyan)');
+      const colorHex = type === 'airport' ? '#ff9f1c' : '#00d2ff';
+      const secondaryColor = type === 'airport' ? 'rgba(255, 159, 28, 0.4)' : 'rgba(0, 210, 255, 0.4)';
+      
+      return L.divIcon({
+        className: 'custom-leaflet-icon',
+        html: `
+          <div style="position: relative; width: 32px; height: 32px;">
+            <div class="custom-marker-pulse" style="border-color: ${isActive ? '#ff9f1c' : colorHex}"></div>
+            <div class="custom-marker-dot" style="background-color: ${colorHex}; box-shadow: 0 0 8px ${colorHex}"></div>
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+      });
+    }
+
+    // Populate Sidebar Waypoints List
+    const listContainer = document.getElementById('waypoints-container');
+    
+    waypoints.forEach((wp, index) => {
+      // Sidebar Item
+      const wpItem = document.createElement('div');
+      wpItem.classList.add('waypoint-item');
+      wpItem.setAttribute('data-id', wp.id);
+      
+      wpItem.innerHTML = `
+        <div class="waypoint-header">
+          <span class="waypoint-name">${index + 1}. ${wp.name}</span>
+          <span class="waypoint-alt">${wp.alt} ft</span>
+        </div>
+        <div class="waypoint-summary">${wp.desc.substring(0, 95)}...</div>
+      `;
+      
+      listContainer.appendChild(wpItem);
+
+      // Create Map Marker
+      const marker = L.marker([wp.lat, wp.lon], {
+        icon: createCustomIcon(wp.type)
+      }).addTo(map);
+      
+      // Save reference
+      markerInstances[wp.id] = marker;
+
+      // Event handlers
+      const handleSelect = () => {
+        selectWaypoint(wp);
+      };
+
+      wpItem.addEventListener('mouseenter', handleSelect);
+      wpItem.addEventListener('click', () => {
+        map.panTo([wp.lat, wp.lon]);
+        selectWaypoint(wp);
+      });
+      
+      marker.on('mouseover', handleSelect);
+      marker.on('click', () => {
+        map.panTo([wp.lat, wp.lon]);
+        selectWaypoint(wp);
+      });
+    });
+
+    // Handle interactive selection of waypoint
+    let selectedWpId = null;
+
+    function selectWaypoint(wp) {
+      if (selectedWpId === wp.id) return;
+      selectedWpId = wp.id;
+
+      // Update sidebar active state
+      document.querySelectorAll('.waypoint-item').forEach(item => {
+        if (item.getAttribute('data-id') === wp.id) {
+          item.classList.add('active');
+          // Scroll item into view smoothly if not visible
+          item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          item.classList.remove('active');
+        }
+      });
+
+      // Update Map Marker icons
+      waypoints.forEach(w => {
+        const isSel = w.id === wp.id;
+        markerInstances[w.id].setIcon(createCustomIcon(w.type, isSel));
+      });
+
+      // Update Cockpit Panel
+      document.getElementById('ck-title').innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-orange); filter: drop-shadow(0 0 4px var(--accent-orange));">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+        ${wp.name}
+      `;
+      document.getElementById('ck-freq').textContent = wp.freq;
+      document.getElementById('ck-th').textContent = wp.next_th;
+      document.getElementById('ck-mh').textContent = wp.next_mh;
+      document.getElementById('ck-dist').textContent = wp.next_dist;
+      document.getElementById('ck-lat').textContent = formatCoords(wp.lat, 'N');
+      document.getElementById('ck-lon').textContent = formatCoords(wp.lon, 'W');
+      document.getElementById('ck-alt').innerHTML = `${wp.alt.toLocaleString()} <span>ft</span>`;
+      document.getElementById('ck-desc').textContent = wp.desc;
+
+      // Update chart active point
+      updateChartHighlight(wp.id);
+    }
+
+    // Format Coordinates
+    function formatCoords(val, dir) {
+      const absolute = Math.abs(val);
+      const degrees = Math.floor(absolute);
+      const minutesNotTruncated = (absolute - degrees) * 60;
+      const minutes = Math.floor(minutesNotTruncated);
+      const seconds = Math.floor((minutesNotTruncated - minutes) * 60);
+      return `${degrees}°${minutes}'${seconds}" ${dir}`;
+    }
+
+    // Initialize Chart.js for Altitude Profile
+    const ctx = document.getElementById('profileChart').getContext('2d');
+    const chartLabels = waypoints.map(w => w.name.split(" ")[0]); // Short names
+    // Correct mapping for Chart data
+    const chartAltitudes = waypoints.map(w => w.alt);
+
+    // Create custom gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 100);
+    gradient.addColorStop(0, 'rgba(0, 210, 255, 0.4)');
+    gradient.addColorStop(1, 'rgba(0, 210, 255, 0.0)');
+
+    const profileChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: chartLabels,
+        datasets: [{
+          label: 'Altitud (ft)',
+          data: chartAltitudes,
+          borderColor: '#00d2ff',
+          borderWidth: 2,
+          backgroundColor: gradient,
+          fill: true,
+          tension: 0.3,
+          pointBackgroundColor: '#0a0e17',
+          pointBorderColor: '#00d2ff',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return `Altitud: ${context.raw} ft`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { color: '#9ca3af', font: { size: 9, family: 'Outfit' } }
+          },
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { color: '#9ca3af', font: { size: 9, family: 'Outfit' } },
+            min: 0,
+            max: 12000
+          }
+        }
+      }
+    });
+
+    function updateChartHighlight(wpId) {
+      const index = waypoints.findIndex(w => w.id === wpId);
+      if (index === -1) return;
+
+      const radii = waypoints.map((_, i) => i === index ? 7 : 4);
+      const bgColors = waypoints.map((_, i) => i === index ? '#ff9f1c' : '#0a0e17');
+      const borderColors = waypoints.map((_, i) => i === index ? '#ff9f1c' : '#00d2ff');
+
+      profileChart.data.datasets[0].pointRadius = radii;
+      profileChart.data.datasets[0].pointBackgroundColor = bgColors;
+      profileChart.data.datasets[0].pointBorderColor = borderColors;
+      profileChart.update();
+    }
+
+    // Default select first item
+    selectWaypoint(waypoints[0]);
+
+    // Aircraft Simulation Logic
+    const planeSvg = `
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="#ff9f1c" xmlns="http://www.w3.org/2000/svg" class="plane-marker-icon" style="filter: drop-shadow(0 0 6px #ff9f1c)">
+        <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z"/>
+      </svg>
+    `;
+
+    const planeIcon = L.divIcon({
+      className: 'plane-div-icon',
+      html: planeSvg,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    let activeSimMarker = null;
+    let isSimulating = false;
+    let simInterval = null;
+
+    document.getElementById('start-simulation').addEventListener('click', () => {
+      if (isSimulating) {
+        stopSimulation();
+        return;
+      }
+      startSimulation();
+    });
+
+    function startSimulation() {
+      isSimulating = true;
+      const btn = document.getElementById('start-simulation');
+      btn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+        </svg>
+        Detener Simulación
+      `;
+      btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)';
+      btn.style.boxShadow = '0 4px 15px rgba(239, 68, 68, 0.3)';
+
+      // Setup Sim Marker
+      if (activeSimMarker) {
+        map.removeLayer(activeSimMarker);
+      }
+      
+      activeSimMarker = L.marker([waypoints[0].lat, waypoints[0].lon], {
+        icon: planeIcon
+      }).addTo(map);
+
+      map.setView([waypoints[0].lat, waypoints[0].lon], 11);
+      selectWaypoint(waypoints[0]);
+
+      let currentWpIndex = 0;
+      let progress = 0; // 0 to 1 between waypoints
+      const steps = 100; // Number of interpolation steps per leg
+      const speedMs = 40; // MS per step
+
+      simInterval = setInterval(() => {
+        if (currentWpIndex >= waypoints.length - 1) {
+          // Simulation complete
+          stopSimulation();
+          selectWaypoint(waypoints[waypoints.length - 1]);
+          return;
+        }
+
+        const startWp = waypoints[currentWpIndex];
+        const endWp = waypoints[currentWpIndex + 1];
+
+        // Linear interpolation of coordinates (fine for short distances)
+        const lat = startWp.lat + (endWp.lat - startWp.lat) * (progress / steps);
+        const lon = startWp.lon + (endWp.lon - startWp.lon) * (progress / steps);
+        const alt = Math.round(startWp.alt + (endWp.alt - startWp.alt) * (progress / steps));
+
+        // Update Sim Plane position
+        activeSimMarker.setLatLng([lat, lon]);
+
+        // Calculate heading to rotate SVG
+        const angle = Math.atan2(endWp.lon - startWp.lon, endWp.lat - startWp.lat) * 180 / Math.PI;
+        const planeEl = activeSimMarker.getElement().querySelector('.plane-marker-icon');
+        if (planeEl) {
+          planeEl.style.transform = `rotate(${angle}deg)`;
+        }
+
+        // Live telemetry updates in cockpit and top bar
+        document.getElementById('ck-title').innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-orange); animation: pulse-ring 1.5s infinite">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          Vuelo VFR En Progreso
+        `;
+        document.getElementById('ck-lat').textContent = formatCoords(lat, 'N');
+        document.getElementById('ck-lon').textContent = formatCoords(lon, 'W');
+        document.getElementById('ck-alt').innerHTML = `${alt.toLocaleString()} <span>ft</span>`;
+        document.getElementById('ck-th').textContent = startWp.next_th;
+        document.getElementById('ck-mh').textContent = startWp.next_mh;
+        document.getElementById('ck-dist').textContent = `${(parseFloat(startWp.next_dist) * (1 - progress/steps)).toFixed(1)} NM`;
+        document.getElementById('ck-desc').innerHTML = `Aeronave transitando de <strong>${startWp.name}</strong> a <strong>${endWp.name}</strong>. Manteniendo rumbo visual.`;
+
+        // Follow airplane in map
+        map.panTo([lat, lon]);
+
+        // Progress
+        progress++;
+        if (progress > steps) {
+          progress = 0;
+          currentWpIndex++;
+          selectWaypoint(waypoints[currentWpIndex]);
+        }
+      }, speedMs);
+    }
+
+    function stopSimulation() {
+      isSimulating = false;
+      clearInterval(simInterval);
+      
+      const btn = document.getElementById('start-simulation');
+      btn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Iniciar Simulación VFR
+      `;
+      btn.style.background = 'linear-gradient(135deg, var(--accent-cyan) 0%, #0077ff 100%)';
+      btn.style.boxShadow = '0 4px 15px rgba(0, 210, 255, 0.3)';
+
+      if (activeSimMarker) {
+        map.removeLayer(activeSimMarker);
+        activeSimMarker = null;
+      }
+      
+      map.fitBounds(mainLine.getBounds(), { padding: [50, 50] });
+      selectWaypoint(waypoints[0]);
+    }
+  </script>
+</body>
+</html>

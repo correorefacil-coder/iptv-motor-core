@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Productiva IPTV Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=1.0.1">
+</head>
+<body>
+    <div class="app-container">
+        <!-- TOP NAVIGATION & STATUS BAR -->
+        <header class="main-header">
+            <div class="logo-area">
+                <span class="logo-pulse"></span>
+                <img src="logo.png?v=3" alt="Productiva" class="logo-img">
+                <span class="badge-ver">v1.0.0</span>
+            </div>
+            
+            <!-- System metrics dashboard -->
+            <div class="sys-metrics">
+                <div class="metric-card">
+                    <span class="metric-label">CPU</span>
+                    <div class="metric-bar-container">
+                        <div id="cpu-bar" class="metric-bar" style="width: 0%"></div>
+                    </div>
+                    <span id="cpu-text" class="metric-val">0%</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">MEM</span>
+                    <div class="metric-bar-container">
+                        <div id="mem-bar" class="metric-bar" style="width: 0%"></div>
+                    </div>
+                    <span id="mem-text" class="metric-val">0%</span>
+                </div>
+                <div id="gpu-card" class="metric-card" style="display: none;">
+                    <span class="metric-label">GPU</span>
+                    <div class="metric-bar-container">
+                        <div id="gpu-bar" class="metric-bar" style="width: 0%"></div>
+                    </div>
+                    <span id="gpu-text" class="metric-val">0%</span>
+                </div>
+                <div id="gpu-mem-card" class="metric-card" style="display: none;">
+                    <span class="metric-label">GPUMEM</span>
+                    <div class="metric-bar-container">
+                        <div id="gpu-mem-bar" class="metric-bar" style="width: 0%"></div>
+                    </div>
+                    <span id="gpu-mem-text" class="metric-val">0%</span>
+                </div>
+                <div class="metric-divider"></div>
+                <div class="bandwidth-card">
+                    <span class="bw-icon">↓</span>
+                    <div>
+                        <span class="bw-label">Entrada</span>
+                        <span id="bw-in" class="bw-val">0 Kbps</span>
+                    </div>
+                </div>
+                <div class="bandwidth-card">
+                    <span class="bw-icon">↑</span>
+                    <div>
+                        <span class="bw-label">Salida</span>
+                        <span id="bw-out" class="bw-val">0 Kbps</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button id="btn-config" class="btn btn-secondary">Configuración</button>
+                <button id="btn-new-input" class="btn btn-primary-outline">+ Agregar Pack</button>
+                <button id="btn-new-stream" class="btn btn-primary">+ Nuevo Canal</button>
+                <button id="btn-logout" class="btn btn-danger btn-small">Cerrar Sesión</button>
+            </div>
+        </header>
+
+        <!-- MAIN DASHBOARD CONTENT -->
+        <main class="dashboard-content">
+            <!-- Summary stats -->
+            <div class="summary-widgets">
+                <div class="widget">
+                    <span class="widget-title">Fuentes de Entrada</span>
+                    <div class="widget-value"><span id="count-inputs-active">0</span> / <span id="count-inputs-total">0</span> <span class="sub-label">Activas</span></div>
+                </div>
+                <div class="widget">
+                    <span class="widget-title">Canales en Salida</span>
+                    <div class="widget-value"><span id="count-streams-active">0</span> / <span id="count-streams-total">0</span> <span class="sub-label">Transmitiendo</span></div>
+                </div>
+            </div>
+
+            <!-- CHANNELS GRID (SPTS) -->
+            <section class="grid-section">
+                <h2 class="section-title">Canales Activos / Salidas</h2>
+                <div id="streams-grid" class="streams-grid">
+                    <!-- Stream cards will be inserted here dynamically -->
+                    <div class="no-data">Cargando canales...</div>
+                </div>
+            </section>
+
+            <!-- INPUT PACKS SECTION (MPTS) -->
+            <section class="inputs-section">
+                <h2 class="section-title">Packs de Entrada (Fuentes Multiplexadas)</h2>
+                <div id="inputs-container" class="inputs-container">
+                    <!-- Input packs cards/table will be inserted here -->
+                    <div class="no-data">Cargando fuentes de entrada...</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL: ADD/EDIT INPUT -->
+    <div id="modal-input" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-modal-input">&times;</span>
+            <h3 id="modal-input-title">Agregar Pack de Entrada</h3>
+            <form id="form-input">
+                <input type="hidden" id="input-id">
+                <div class="form-group">
+                    <label for="input-name">Nombre del Pack</label>
+                    <input type="text" id="input-name" required placeholder="Ej. Pack 30006 ESPN o Señal Nacional">
+                </div>
+                <div class="form-group">
+                    <label for="input-type">Tipo de Entrada</label>
+                    <select id="input-type" required>
+                        <option value="live">Transmisión en Vivo (Live URL Feed)</option>
+                        <option value="videopack">Paquete de Videos (Video Pack Folder)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="input-url">URL de la Fuente o Ruta de Archivo Local</label>
+                    <div class="input-url-wrapper" style="display: flex; gap: 8px;">
+                        <input type="text" id="input-url" required placeholder="Ej. srt://38.199.67.242:30006, udp://@239.1.1.1:1234 o /ruta/video.mp4" style="flex: 1;">
+                        <button type="button" id="btn-browse-files" class="btn btn-secondary" style="white-space: nowrap;">📁 Examinar...</button>
+                    </div>
+                    <small class="form-help">Para UDP multicast usa udp://@239.1.1.1:1234. Para archivos de video locales, usa el botón Examinar.</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-cancel-input" class="btn btn-secondary">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Pack</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: ADD/EDIT STREAM (CHANNEL MAPPING) -->
+    <div id="modal-stream" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-modal-stream">&times;</span>
+            <h3 id="modal-stream-title">Agregar Canal / Salida</h3>
+            <form id="form-stream">
+                <input type="hidden" id="stream-id">
+                <div class="form-group">
+                    <label for="stream-name">Nombre del Canal</label>
+                    <input type="text" id="stream-name" required placeholder="Ej. ESPN 1 o Caracol TV">
+                </div>
+                <div class="form-group">
+                    <label for="stream-input-id">Pack de Entrada de Origen</label>
+                    <select id="stream-input-id" required>
+                        <option value="">Selecciona un pack...</option>
+                    </select>
+                </div>
+                <div class="form-group" id="stream-program-group">
+                    <label for="stream-program">Programa / Canal dentro de la Señal</label>
+                    <div class="program-selector-wrapper">
+                        <select id="stream-program" required>
+                            <option value="">Selecciona un programa...</option>
+                        </select>
+                        <button type="button" id="btn-refresh-programs" class="btn btn-secondary btn-small" title="Escanear programas disponibles en la fuente">Escanear</button>
+                    </div>
+                    <small class="form-help">Identificador del programa (Program Number / SID) en el flujo MPEG-TS.</small>
+                </div>
+                <div class="form-group" id="stream-video-filename-group" style="display: none;">
+                    <label for="stream-video-filename">Archivo de Video</label>
+                    <select id="stream-video-filename">
+                        <option value="">Selecciona un video...</option>
+                    </select>
+                    <small class="form-help">Selecciona el archivo de video que deseas reproducir en este canal.</small>
+                </div>
+                <div class="form-group">
+                    <label for="stream-output-url">URL de Salida (UDP Multicast o SRT)</label>
+                    <input type="text" id="stream-output-url" required placeholder="Ej. udp://239.2.2.109:9009 o srt://127.0.0.1:4001?mode=listener">
+                </div>
+                <div class="form-group">
+                    <label for="stream-interface">Tarjeta de Red para Salida (NIC)</label>
+                    <select id="stream-interface">
+                        <option value="">Por defecto (Cualquiera / Auto)</option>
+                    </select>
+                    <small class="form-help">Forzar que el flujo de este canal salga a través de esta tarjeta de red.</small>
+                </div>
+                
+                <!-- Transcoding Section -->
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="stream-transcode-enabled">
+                    <label for="stream-transcode-enabled" style="font-weight: 600; color: var(--text-primary);">Hacer transcoding</label>
+                </div>
+
+                <div id="transcode-options-container" style="display: none; padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 16px; margin-top: -8px;">
+                    <!-- Video Transcoding -->
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="stream-transcode-video">
+                        <label for="stream-transcode-video">Formato de video de entrada: <span id="stream-video-input-detected" style="font-weight: bold; color: var(--text-primary);">Auto</span></label>
+                    </div>
+                    
+                    <div id="video-transcode-details" style="display: none; padding-left: 16px; margin-bottom: 12px;">
+                        <input type="hidden" id="stream-video-input" value="auto">
+                        <div class="form-group">
+                            <label for="stream-video-output">Listado de formatos de salida</label>
+                            <select id="stream-video-output">
+                                <option value="h264">H.264 (libx264)</option>
+                                <option value="hevc">H.265 / HEVC (libx265)</option>
+                                <option value="mpeg2video">MPEG-2 Video (mpeg2video)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Audio Transcoding -->
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="stream-transcode-audio">
+                        <label for="stream-transcode-audio">Formato de audio de entrada: <span id="stream-audio-input-detected" style="font-weight: bold; color: var(--text-primary);">Auto</span></label>
+                    </div>
+                    
+                    <div id="audio-transcode-details" style="display: none; padding-left: 16px; margin-bottom: 12px;">
+                        <input type="hidden" id="stream-audio-input" value="auto">
+                        <div class="form-group">
+                            <label for="stream-audio-output">Listado de formatos de salida</label>
+                            <select id="stream-audio-output">
+                                <option value="aac">AAC (aac)</option>
+                                <option value="mp3">MP3 (libmp3lame)</option>
+                                <option value="ac3">AC-3 (ac3)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Bitrate Limiting -->
+                    <div class="form-group">
+                        <label for="stream-limit-bitrate">Limitar el bitrate (Kbps)</label>
+                        <input type="number" id="stream-limit-bitrate" placeholder="Ej. 1500 (dejar en 0 o vacío para no limitar)">
+                        <small class="form-help">Establece el bitrate máximo para la transmisión en kilobits por segundo.</small>
+                    </div>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="stream-enabled" checked>
+                    <label for="stream-enabled">Activar transmisión inmediatamente</label>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-cancel-stream" class="btn btn-secondary">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Canal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: PROBE INPUT -->
+    <div id="modal-probe" class="modal">
+        <div class="modal-content modal-large">
+            <span class="close-modal" id="close-modal-probe">&times;</span>
+            <h3>Explorar Programas Disponibles</h3>
+            <p class="modal-desc" id="probe-pack-desc">Analizando flujos MPEG-TS...</p>
+            <div id="probe-loading" class="probe-loading">
+                <div class="spinner"></div>
+                <p>Escaneando tablas PAT y PMT en la señal de video externa...</p>
+            </div>
+            <div id="probe-results" class="probe-results-container" style="display:none;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Program #</th>
+                            <th>Nombre de Servicio</th>
+                            <th>Flujos / PIDs Detectados</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="probe-tbody">
+                        <!-- Probe results will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: SYSTEM SETTINGS & CONFIGURATION -->
+    <div id="modal-settings" class="modal">
+        <div class="modal-content modal-large">
+            <span class="close-modal" id="close-modal-settings">&times;</span>
+            <h3>Configuración del Sistema</h3>
+            
+            <div class="settings-container">
+                <!-- Tab Navigation -->
+                <div class="settings-sidebar">
+                    <button class="tab-btn active" data-tab="settings-users">Usuarios y Perfiles</button>
+                    <button class="tab-btn" data-tab="settings-messages" id="tab-messages-btn">Mensajes Programados</button>
+                    <button class="tab-btn" data-tab="settings-channel-logs" id="tab-channel-logs-btn">Log de canales</button>
+                    <button class="tab-btn" data-tab="settings-user-logs" id="tab-user-logs-btn">Log de usuario</button>
+                    <button class="tab-btn" data-tab="settings-global" id="tab-global-btn">Configuración Global</button>
+                </div>
+                
+                <!-- Tab Content -->
+                <div class="settings-content">
+                    
+                    <!-- TAB 1: USERS -->
+                    <div id="settings-users" class="tab-pane active">
+                        <div class="users-section">
+                            <div class="users-left">
+                                <h4>Listado de Usuarios</h4>
+                                <div class="table-container">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Usuario</th>
+                                                <th>Rol</th>
+                                                <th>Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="users-tbody">
+                                            <!-- Loaded dynamically -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div class="users-right">
+                                <h4 id="user-form-title">Crear Nuevo Usuario</h4>
+                                <form id="form-user">
+                                    <input type="hidden" id="user-action" value="create"> <!-- create or edit -->
+                                    <input type="hidden" id="user-original-username">
+                                    
+                                    <div class="form-group">
+                                        <label for="user-username">Nombre de Usuario</label>
+                                        <input type="text" id="user-username" required placeholder="Ej. IngCristian">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="user-password">Contraseña</label>
+                                        <input type="text" id="user-password" required placeholder="Ej. clave123">
+                                        <small class="form-help" id="user-password-help">Para un usuario existente, deja vacío para no cambiarla.</small>
+                                    </div>
+                                    <div class="form-group" id="user-role-group">
+                                        <label for="user-role">Rol de Usuario</label>
+                                        <select id="user-role" required>
+                                            <option value="Consulta">Consulta</option>
+                                            <option value="Programadores">Programadores</option>
+                                            <option value="Admin">Admin</option>
+                                            <option value="SuperAdmin">SuperAdmin</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" id="user-allowed-packs-group" style="display:none; margin-top: 12px;">
+                                        <label>Canales Permitidos (solo archivos de video)</label>
+                                        <div id="user-allowed-packs-list" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; background: rgba(255,255,255,0.02);">
+                                            <!-- Rendered dynamically via JS -->
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-actions" style="margin-top: 16px;">
+                                        <button type="button" id="btn-cancel-user" class="btn btn-secondary btn-small" style="display:none;">Cancelar Edición</button>
+                                        <button type="submit" id="btn-submit-user" class="btn btn-primary btn-small">Guardar Usuario</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- TAB 2: CHANNEL LOGS -->
+                    <div id="settings-channel-logs" class="tab-pane">
+                        <h4>Log de Canales (Tiempo Real)</h4>
+                        <div id="channel-logs-box" class="logs-box" style="height: 320px; margin-top: 12px;">
+                            <!-- Channel logs will go here -->
+                        </div>
+                        <div class="form-actions" style="margin-top: 12px;">
+                            <button type="button" id="btn-clear-channel-logs-ui" class="btn btn-secondary btn-small">Limpiar Pantalla</button>
+                        </div>
+                    </div>
+                    
+                    <!-- TAB 3: USER LOGS -->
+                    <div id="settings-user-logs" class="tab-pane">
+                        <h4>Log de Usuario (Auditoría)</h4>
+                        <div class="table-container" style="max-height: 320px; overflow-y: auto; margin-top: 12px;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 150px;">Fecha y Hora</th>
+                                        <th style="width: 100px;">Usuario</th>
+                                        <th>Acción Realizada</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="user-logs-tbody">
+                                    <!-- User activity logs will go here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- TAB 4: GLOBAL CONFIGURATION -->
+                    <div id="settings-global" class="tab-pane">
+                        <h4>Configuración Global del Servidor</h4>
+                        <form id="form-global" style="margin-top: 16px;">
+                            <div class="form-group">
+                                <label for="global-output-interface">Tarjeta de Red por Defecto para Salida (NIC)</label>
+                                <select id="global-output-interface">
+                                    <option value="">Por defecto (Cualquiera / Auto)</option>
+                                </select>
+                                <small class="form-help">Selecciona la interfaz de red física a utilizar por defecto para la transmisión de flujos UDP Multicast.</small>
+                            </div>
+                            <div class="form-actions" style="margin-top: 24px;">
+                                <button type="submit" class="btn btn-primary btn-small">Guardar Configuración</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- TAB 5: SCHEDULED MESSAGES -->
+                    <div id="settings-messages" class="tab-pane">
+                        <div class="users-section">
+                            <div class="users-left">
+                                <h4>Mensajes Activos / Programados</h4>
+                                <div class="table-container" style="max-height: 280px; overflow-y: auto; margin-top: 12px;">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Mensaje</th>
+                                                <th>Programación</th>
+                                                <th>Canales</th>
+                                                <th>Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="messages-tbody">
+                                            <!-- Loaded dynamically -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div class="users-right">
+                                <h4 id="message-form-title">Programar Nuevo Mensaje</h4>
+                                <form id="form-message">
+                                    <input type="hidden" id="message-action" value="create"> <!-- create or edit -->
+                                    <input type="hidden" id="message-id">
+                                    
+                                    <div class="form-group">
+                                        <label for="message-text">Texto del Mensaje (Banner)</label>
+                                        <input type="text" id="message-text" required placeholder="Ej. Canal en mantenimiento...">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="message-start-time">Fecha y Hora de Inicio</label>
+                                        <input type="datetime-local" id="message-start-time" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="message-end-time">Fecha y Hora de Fin</label>
+                                        <input type="datetime-local" id="message-end-time" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="message-target-type">Canales Destino</label>
+                                        <select id="message-target-type" required>
+                                            <option value="all">Todos los canales</option>
+                                            <option value="select">Seleccionar canales específicos</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" id="message-channels-selection-group" style="display: none;">
+                                        <label>Seleccionar Canales</label>
+                                        <div id="message-channels-checkboxes" style="max-height: 120px; overflow-y: auto; border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                            <!-- Dynamically filled with channels checkboxes -->
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-actions" style="margin-top: 16px;">
+                                        <button type="button" id="btn-cancel-message" class="btn btn-secondary btn-small" style="display:none;">Cancelar</button>
+                                        <button type="submit" id="btn-submit-message" class="btn btn-primary btn-small">Guardar Mensaje</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                </div>
+            </div>
+            
+            <div class="form-actions" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                <button type="button" id="close-settings-modal-btn" class="btn btn-secondary">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: FILE EXPLORER -->
+    <div id="modal-fs" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close-modal" id="close-modal-fs">&times;</span>
+            <h3>Examinar Archivos del Sistema</h3>
+            <div class="fs-current-path-bar" style="margin-bottom: 12px; font-weight: 500; font-size: 0.9em; word-break: break-all; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                Ruta actual: <span id="fs-current-path">/</span>
+            </div>
+            <div id="fs-list-container" style="max-height: 350px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; background: rgba(0,0,0,0.2); padding: 4px;">
+                <!-- Files/folders list will be loaded here -->
+            </div>
+            <div class="form-actions" style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <input type="file" id="fs-upload-file" style="display:none;" multiple>
+                <button type="button" id="btn-upload-file" class="btn btn-secondary">Subir Archivos</button>
+                <button type="button" id="btn-mkdir" class="btn btn-secondary">Nueva Carpeta</button>
+                <button type="button" id="btn-select-folder" class="btn btn-primary" style="display: none;">Seleccionar Carpeta</button>
+                <button type="button" id="btn-select-file" class="btn btn-primary" disabled>Seleccionar Archivo</button>
+                <button type="button" id="btn-close-fs" class="btn btn-secondary">Cerrar</button>
+                <span id="fs-upload-status" style="margin-left: 8px; font-size: 0.9em; vertical-align: middle;"></span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=2"></script>
+</body>
+</html>

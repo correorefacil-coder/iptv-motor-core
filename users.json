@@ -1,0 +1,46 @@
+[
+    {
+        "password": "cristian123",
+        "role": "SuperAdmin",
+        "username": "Cristian",
+        "allowed_streams": []
+    },
+    {
+        "password": "CARE90po#",
+        "role": "SuperAdmin",
+        "username": "IngCristian",
+        "allowed_streams": []
+    },
+    {
+        "password": "admin123",
+        "role": "Admin",
+        "username": "admin",
+        "allowed_streams": []
+    },
+    {
+        "password": "consultas123",
+        "role": "Consulta",
+        "username": "consultas",
+        "allowed_streams": []
+    },
+    {
+        "password": "cafeteria",
+        "role": "Programadores",
+        "username": "cafeteria",
+        "allowed_streams": [
+            "stream_1780604845893654388"
+        ]
+    },
+    {
+        "password": "comunicaciones",
+        "role": "Programadores",
+        "username": "comunicaciones",
+        "allowed_streams": [
+            "stream_inst_1",
+            "stream_inst_2",
+            "stream_inst_3",
+            "stream_inst_4",
+            "stream_inst_5"
+        ]
+    }
+]

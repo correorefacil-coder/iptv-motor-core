@@ -1,0 +1,20 @@
+# Compilación
+/build/
+/CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Archivos de video y subidas
+/uploads/
+/test_video.ts
+
+# Logs y perfiles temporales
+/*.log
+/chrome_profile/
+/cookies.txt
+/user_logs.json
+
+# Scratch y capturas
+/scratch_*
+/*.png

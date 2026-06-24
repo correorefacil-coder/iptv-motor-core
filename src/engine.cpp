@@ -50,8 +50,7 @@ std::vector<ProgramInfo> scan_video_pack_directory(const std::string& dir_path) 
 // ==========================================
 
 OutputStream::OutputStream(const std::string& id, const std::string& name, const std::string& input_id,
-                           int program_number, const std::string& output_url, bool enabled,
-                           const std::string& output_interface,
+                           int program_number, const std::vector<OutputDestination>& outputs, bool enabled,
                            const std::string& input_url, bool is_video_pack,
                            bool transcode_enabled, bool transcode_video,
                            const std::string& video_input_format, const std::string& video_output_format,
@@ -59,13 +58,20 @@ OutputStream::OutputStream(const std::string& id, const std::string& name, const
                            const std::string& audio_output_format, int limit_bitrate,
                            const std::string& video_filename)
     : id_(id), name_(name), input_id_(input_id), program_number_(program_number),
-      output_url_(output_url), enabled_(enabled), output_interface_(output_interface),
+      outputs_(outputs), enabled_(enabled),
       input_url_(input_url), is_video_pack_(is_video_pack),
       transcode_enabled_(transcode_enabled), transcode_video_(transcode_video),
       video_input_format_(video_input_format), video_output_format_(video_output_format),
       transcode_audio_(transcode_audio), audio_input_format_(audio_input_format),
       audio_output_format_(audio_output_format), limit_bitrate_(limit_bitrate),
       video_filename_(video_filename) {
+    if (!outputs.empty()) {
+        output_url_ = outputs[0].url;
+        output_interface_ = outputs[0].output_interface;
+    } else {
+        output_url_ = "";
+        output_interface_ = "";
+    }
     last_bitrate_calc_ = std::chrono::steady_clock::now();
 }
 
@@ -318,8 +324,12 @@ void OutputStream::OutputLoopVideoPack() {
             continue;
         }
 
-        std::string resolved_url = output_url_;
-        std::string out_iface = output_interface_;
+        std::string resolved_url = "";
+        std::string out_iface = "";
+        if (!outputs_.empty()) {
+            resolved_url = outputs_[0].url;
+            out_iface = outputs_[0].output_interface;
+        }
         if (!out_iface.empty()) {
             std::string iface_ip = GetInterfaceIP(out_iface);
             if (!iface_ip.empty()) {
@@ -369,7 +379,17 @@ void OutputStream::OutputLoopVideoPack() {
         }
 
         bool force_transcode = !current_msg.empty();
-        bool use_transcoding = current_transcode_enabled || force_transcode;
+        
+        bool force_ffmpeg = false;
+        if (outputs_.size() > 1) {
+            force_ffmpeg = true;
+        } else if (!outputs_.empty()) {
+            std::string t = outputs_[0].type;
+            if (t == "hls" || t == "rtp") {
+                force_ffmpeg = true;
+            }
+        }
+        bool use_transcoding = current_transcode_enabled || force_transcode || force_ffmpeg;
 
         if (use_transcoding) {
             std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error -hwaccel cuda -copyts -i pipe:0 ";
@@ -434,7 +454,38 @@ void OutputStream::OutputLoopVideoPack() {
                 ffmpeg_cmd += "-c:a copy ";
             }
             
-            ffmpeg_cmd += "-f mpegts \"" + resolved_url + "\"";
+            std::string outputs_str = "";
+            for (const auto& dest : outputs_) {
+                std::string r_url = dest.url;
+                std::string o_iface = dest.output_interface;
+                if (!o_iface.empty()) {
+                    std::string iface_ip = GetInterfaceIP(o_iface);
+                    if (!iface_ip.empty()) {
+                        if (r_url.rfind("udp://", 0) == 0 || r_url.rfind("srt://", 0) == 0 || r_url.rfind("rtp://", 0) == 0) {
+                            if (r_url.find("localaddr=") == std::string::npos) {
+                                if (r_url.find('?') == std::string::npos) {
+                                    r_url += "?localaddr=" + iface_ip;
+                                } else {
+                                    r_url += "&localaddr=" + iface_ip;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (dest.type == "hls" || r_url.rfind("hls://", 0) == 0 || r_url.find(".m3u8") != std::string::npos) {
+                    try {
+                        std::filesystem::path p(r_url);
+                        std::filesystem::create_directories(p.parent_path());
+                    } catch (...) {}
+                    outputs_str += " -f hls -hls_time 2 -hls_list_size 5 -hls_flags delete_segments \"" + r_url + "\"";
+                } else if (dest.type == "rtp" || r_url.rfind("rtp://", 0) == 0) {
+                    outputs_str += " -f rtp_mpegts \"" + r_url + "\"";
+                } else {
+                    outputs_str += " -f mpegts \"" + r_url + "\"";
+                }
+            }
+            ffmpeg_cmd += outputs_str;
             
             LOG_INFO("Canal [" + name_ + "]: Iniciando comando de transcodificación (VideoPack): " + ffmpeg_cmd);
             
@@ -827,8 +878,12 @@ void OutputStream::OutputLoop() {
                 std::lock_guard<std::mutex> stat_lock(stats_mutex_);
                 error_message_ = "";
 
-                std::string resolved_url = output_url_;
-                std::string out_iface = output_interface_;
+                std::string resolved_url = "";
+                std::string out_iface = "";
+                if (!outputs_.empty()) {
+                    resolved_url = outputs_[0].url;
+                    out_iface = outputs_[0].output_interface;
+                }
                 if (!out_iface.empty()) {
                     std::string iface_ip = GetInterfaceIP(out_iface);
                     if (!iface_ip.empty()) {
@@ -857,7 +912,17 @@ void OutputStream::OutputLoop() {
                 std::string active_msg = StreamerEngine::GetInstance().GetActiveMessageForStream(id_);
                 initialized_message_ = active_msg;
                 bool force_transcode = !active_msg.empty();
-                bool use_transcoding = transcode_enabled_ || force_transcode;
+                
+                bool force_ffmpeg = false;
+                if (outputs_.size() > 1) {
+                    force_ffmpeg = true;
+                } else if (!outputs_.empty()) {
+                    std::string t = outputs_[0].type;
+                    if (t == "hls" || t == "rtp") {
+                        force_ffmpeg = true;
+                    }
+                }
+                bool use_transcoding = transcode_enabled_ || force_transcode || force_ffmpeg;
 
                 if (use_transcoding) {
                     std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error -hwaccel cuda -copyts -i pipe:0 ";
@@ -925,7 +990,38 @@ void OutputStream::OutputLoop() {
                         ffmpeg_cmd += "-c:a copy ";
                     }
                     
-                    ffmpeg_cmd += "-f mpegts \"" + resolved_url + "\"";
+                    std::string outputs_str = "";
+                    for (const auto& dest : outputs_) {
+                        std::string r_url = dest.url;
+                        std::string o_iface = dest.output_interface;
+                        if (!o_iface.empty()) {
+                            std::string iface_ip = GetInterfaceIP(o_iface);
+                            if (!iface_ip.empty()) {
+                                if (r_url.rfind("udp://", 0) == 0 || r_url.rfind("srt://", 0) == 0 || r_url.rfind("rtp://", 0) == 0) {
+                                    if (r_url.find("localaddr=") == std::string::npos) {
+                                        if (r_url.find('?') == std::string::npos) {
+                                            r_url += "?localaddr=" + iface_ip;
+                                        } else {
+                                            r_url += "&localaddr=" + iface_ip;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (dest.type == "hls" || r_url.rfind("hls://", 0) == 0 || r_url.find(".m3u8") != std::string::npos) {
+                            try {
+                                std::filesystem::path p(r_url);
+                                std::filesystem::create_directories(p.parent_path());
+                            } catch (...) {}
+                            outputs_str += " -f hls -hls_time 2 -hls_list_size 5 -hls_flags delete_segments \"" + r_url + "\"";
+                        } else if (dest.type == "rtp" || r_url.rfind("rtp://", 0) == 0) {
+                            outputs_str += " -f rtp_mpegts \"" + r_url + "\"";
+                        } else {
+                            outputs_str += " -f mpegts \"" + r_url + "\"";
+                        }
+                    }
+                    ffmpeg_cmd += outputs_str;
                     
                     LOG_INFO("Canal [" + name_ + "]: Iniciando comando de transcodificación: " + ffmpeg_cmd);
                     
@@ -1848,9 +1944,7 @@ bool StreamerEngine::LoadConfig() {
             std::string name = item["name"];
             std::string input_id = item["input_id"];
             int program_number = item["program_number"];
-            std::string output_url = item["output_url"];
             bool enabled = item.value("enabled", true);
-            std::string output_interface = item.value("output_interface", "");
             bool transcode_enabled = item.value("transcode_enabled", false);
             bool transcode_video = item.value("transcode_video", false);
             std::string video_input_format = item.value("video_input_format", "");
@@ -1869,12 +1963,36 @@ bool StreamerEngine::LoadConfig() {
                 is_video_pack = input_it->second->IsVideoPack();
             }
 
-            std::string resolved_interface = output_interface;
-            if (resolved_interface.empty()) {
-                resolved_interface = output_interface_;
+            std::vector<OutputDestination> outputs;
+            if (item.contains("outputs") && item["outputs"].is_array()) {
+                for (const auto& out_item : item["outputs"]) {
+                    OutputDestination dest;
+                    dest.url = out_item.value("url", "");
+                    dest.output_interface = out_item.value("output_interface", "");
+                    dest.type = out_item.value("type", "");
+                    if (dest.type.empty()) {
+                        if (dest.url.rfind("udp://", 0) == 0) dest.type = "udp";
+                        else if (dest.url.rfind("srt://", 0) == 0) dest.type = "srt";
+                        else if (dest.url.rfind("rtp://", 0) == 0) dest.type = "rtp";
+                        else dest.type = "hls";
+                    }
+                    outputs.push_back(dest);
+                }
+            } else {
+                std::string output_url = item.value("output_url", "");
+                std::string output_interface = item.value("output_interface", "");
+                std::string resolved_interface = output_interface.empty() ? output_interface_ : output_interface;
+                OutputDestination dest;
+                dest.url = output_url;
+                dest.output_interface = resolved_interface;
+                if (dest.url.rfind("udp://", 0) == 0) dest.type = "udp";
+                else if (dest.url.rfind("srt://", 0) == 0) dest.type = "srt";
+                else if (dest.url.rfind("rtp://", 0) == 0) dest.type = "rtp";
+                else dest.type = "hls";
+                outputs.push_back(dest);
             }
 
-            auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, output_url, enabled, resolved_interface,
+            auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, outputs, enabled,
                                                              input_url, is_video_pack,
                                                              transcode_enabled, transcode_video, video_input_format, video_output_format,
                                                              transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename);
@@ -1944,9 +2062,27 @@ bool StreamerEngine::SaveConfig() {
         item["name"] = pair.second->GetName();
         item["input_id"] = pair.second->GetInputId();
         item["program_number"] = pair.second->GetProgramNumber();
-        item["output_url"] = pair.second->GetOutputUrl();
         item["enabled"] = pair.second->IsEnabled();
-        item["output_interface"] = pair.second->GetOutputInterface();
+        
+        json outputs_arr = json::array();
+        for (const auto& out : pair.second->GetOutputs()) {
+            json out_item;
+            out_item["url"] = out.url;
+            out_item["output_interface"] = out.output_interface;
+            out_item["type"] = out.type;
+            outputs_arr.push_back(out_item);
+        }
+        item["outputs"] = outputs_arr;
+
+        // Legacy compatibility
+        if (!pair.second->GetOutputs().empty()) {
+            item["output_url"] = pair.second->GetOutputs()[0].url;
+            item["output_interface"] = pair.second->GetOutputs()[0].output_interface;
+        } else {
+            item["output_url"] = "";
+            item["output_interface"] = "";
+        }
+
         item["transcode_enabled"] = pair.second->IsTranscodeEnabled();
         item["transcode_video"] = pair.second->IsTranscodeVideo();
         item["video_input_format"] = pair.second->GetVideoInputFormat();
@@ -1987,14 +2123,16 @@ bool StreamerEngine::SaveConfig() {
     return true;
 }
 
-bool StreamerEngine::AddInput(const std::string& name, const std::string& url, bool is_video_pack, std::string& id_out) {
+bool StreamerEngine::AddInput(const std::string& name, const std::string& url, bool enabled, bool is_video_pack, std::string& id_out) {
     std::lock_guard<std::mutex> lock(engine_mutex_);
     
     std::string id = "input_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
     id_out = id;
 
-    auto input = std::make_unique<InputSource>(id, name, url, true, is_video_pack);
-    input->Start();
+    auto input = std::make_unique<InputSource>(id, name, url, enabled, is_video_pack);
+    if (enabled) {
+        input->Start();
+    }
     inputs_[id] = std::move(input);
 
     SaveConfig();
@@ -2052,7 +2190,7 @@ bool StreamerEngine::DeleteInput(const std::string& id) {
 }
 
 bool StreamerEngine::AddStream(const std::string& name, const std::string& input_id, int program_number,
-                               const std::string& output_url, bool enabled, const std::string& output_interface,
+                               const std::vector<OutputDestination>& outputs, bool enabled,
                                bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                                const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
                                const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename, std::string& id_out) {
@@ -2069,12 +2207,14 @@ bool StreamerEngine::AddStream(const std::string& name, const std::string& input
         is_video_pack = input_it->second->IsVideoPack();
     }
 
-    std::string resolved_interface = output_interface;
-    if (resolved_interface.empty()) {
-        resolved_interface = output_interface_;
+    std::vector<OutputDestination> resolved_outputs = outputs;
+    for (auto& out : resolved_outputs) {
+        if (out.output_interface.empty()) {
+            out.output_interface = output_interface_;
+        }
     }
 
-    auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, output_url, enabled, resolved_interface,
+    auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, resolved_outputs, enabled,
                                                      input_url, is_video_pack,
                                                      transcode_enabled, transcode_video, video_input_format, video_output_format,
                                                      transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename);
@@ -2093,7 +2233,7 @@ bool StreamerEngine::AddStream(const std::string& name, const std::string& input
 }
 
 bool StreamerEngine::UpdateStream(const std::string& id, const std::string& name, const std::string& input_id,
-                                  int program_number, const std::string& output_url, bool enabled, const std::string& output_interface,
+                                  int program_number, const std::vector<OutputDestination>& outputs, bool enabled,
                                   bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                                   const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
                                   const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename) {
@@ -2117,12 +2257,14 @@ bool StreamerEngine::UpdateStream(const std::string& id, const std::string& name
         is_video_pack = input_it->second->IsVideoPack();
     }
 
-    std::string resolved_interface = output_interface;
-    if (resolved_interface.empty()) {
-        resolved_interface = output_interface_;
+    std::vector<OutputDestination> resolved_outputs = outputs;
+    for (auto& out : resolved_outputs) {
+        if (out.output_interface.empty()) {
+            out.output_interface = output_interface_;
+        }
     }
 
-    it->second = std::make_unique<OutputStream>(id, name, input_id, program_number, output_url, enabled, resolved_interface,
+    it->second = std::make_unique<OutputStream>(id, name, input_id, program_number, resolved_outputs, enabled,
                                                input_url, is_video_pack,
                                                transcode_enabled, transcode_video, video_input_format, video_output_format,
                                                transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename);
@@ -2226,6 +2368,16 @@ json StreamerEngine::GetStreamsJSON() {
         item["error_message"] = stats.error_message;
         item["enabled"] = pair.second->IsEnabled();
         item["output_interface"] = stats.output_interface;
+
+        json outputs_arr = json::array();
+        for (const auto& out : pair.second->GetOutputs()) {
+            json out_item;
+            out_item["url"] = out.url;
+            out_item["output_interface"] = out.output_interface;
+            out_item["type"] = out.type;
+            outputs_arr.push_back(out_item);
+        }
+        item["outputs"] = outputs_arr;
         item["transcode_enabled"] = pair.second->IsTranscodeEnabled();
         item["transcode_video"] = pair.second->IsTranscodeVideo();
         item["video_input_format"] = pair.second->GetVideoInputFormat();

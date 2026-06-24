@@ -594,6 +594,16 @@ body {
     color: var(--red-alert);
 }
 
+.input-pack-card.disabled {
+    opacity: 0.6;
+    border-color: var(--border-color);
+}
+
+.input-pack-card.disabled .pack-status-badge {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+}
+
 .pack-url {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -1096,4 +1106,55 @@ select option {
     }
 }
 
+/* OUTPUT ROWS */
+.output-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 8px;
+}
 
+.output-row select,
+.output-row input {
+    margin-bottom: 0 !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+}
+
+.output-type-select {
+    width: 90px;
+    flex-shrink: 0;
+}
+
+.output-url-input {
+    flex: 1;
+    min-width: 120px;
+}
+
+.output-iface-select {
+    width: 150px;
+    flex-shrink: 0;
+}
+
+.output-row .btn-danger {
+    padding: 8px 12px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.badge-type {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    margin-right: 4px;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+}

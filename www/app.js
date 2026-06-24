@@ -162,6 +162,22 @@ function calculateTotalBandwidths() {
 }
 
 // --- RENDER DASHBOARD GRID ---
+function getPlayableUrl(dest) {
+    if (dest.type === 'hls') {
+        let path = dest.url;
+        if (path.startsWith('www/')) {
+            path = path.substring(4);
+        } else if (path.startsWith('./www/')) {
+            path = path.substring(6);
+        }
+        if (!path.startsWith('/')) {
+            path = '/' + path;
+        }
+        return `${window.location.protocol}//${window.location.host}${path}`;
+    }
+    return dest.url;
+}
+
 function renderStreams() {
     if (streams.length === 0) {
         streamsGrid.innerHTML = `<div class="no-data">No hay canales configurados. Haz clic en "Nuevo Canal" para empezar.</div>`;
@@ -181,6 +197,34 @@ function renderStreams() {
         const isVideoPackStream = inputSource && inputSource.is_video_pack;
         const channelNumLabel = isVideoPackStream ? `Archivo: ${stream.video_filename || 'Sin seleccionar'}` : `Programa #${stream.program_number}`;
 
+        let outputsHtml = '';
+        if (stream.outputs && stream.outputs.length > 0) {
+            stream.outputs.forEach(dest => {
+                const playableUrl = getPlayableUrl(dest);
+                const typeBadge = `<span class="badge-type">${dest.type.toUpperCase()}</span>`;
+                const ifaceText = dest.output_interface ? ` (${dest.output_interface})` : '';
+                outputsHtml += `
+                <div class="card-path" style="margin-top: 4px;">
+                    <span class="path-lbl" style="min-width: 45px; display: inline-block;">${typeBadge}</span>
+                    <span class="path-val" title="${playableUrl}">
+                        ${playableUrl}${ifaceText}
+                        <button class="copy-url-btn" title="Copiar URL para reproductor" onclick="copyVlcUrl('${playableUrl}', event)">📋</button>
+                    </span>
+                </div>`;
+            });
+        } else {
+            const typeBadge = `<span class="badge-type">UDP/SRT</span>`;
+            const ifaceText = stream.output_interface ? ` (${stream.output_interface})` : '';
+            outputsHtml += `
+            <div class="card-path" style="margin-top: 4px;">
+                <span class="path-lbl" style="min-width: 45px; display: inline-block;">${typeBadge}</span>
+                <span class="path-val" title="${stream.output_url}">
+                    ${stream.output_url}${ifaceText}
+                    <button class="copy-url-btn" title="Copiar URL para reproductor" onclick="copyVlcUrl('${stream.output_url}', event)">📋</button>
+                </span>
+            </div>`;
+        }
+
         card.innerHTML = `
             <div class="card-header">
                 <div class="channel-info">
@@ -199,12 +243,8 @@ function renderStreams() {
                     <span class="path-lbl">Origen:</span>
                     <span class="path-val" title="${inputName}">${inputName}</span>
                 </div>
-                <div class="card-path">
-                    <span class="path-lbl">Salida:</span>
-                    <span class="path-val" title="${stream.output_url}">
-                        ${stream.output_url}
-                        <button class="copy-url-btn" title="Copiar URL para VLC" onclick="copyVlcUrl('${stream.output_url}', event)">📋</button>
-                    </span>
+                <div style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
+                    ${outputsHtml}
                 </div>
                 ${stream.error_message ? `<div class="card-path error" style="color:var(--red-alert); font-size:11px;">Error: ${stream.error_message}</div>` : ''}
             </div>
@@ -232,7 +272,7 @@ function renderInputs() {
     inputsContainer.innerHTML = '';
     inputs.forEach(input => {
         const card = document.createElement('div');
-        card.className = `input-pack-card ${input.connected ? 'connected' : 'offline'}`;
+        card.className = `input-pack-card ${input.connected ? 'connected' : 'offline'} ${!input.enabled ? 'disabled' : ''}`;
         card.id = `input-${input.id}`;
 
         card.innerHTML = `
@@ -252,6 +292,9 @@ function renderInputs() {
                 </div>
                 ${currentUser && (currentUser.role === 'Consulta' || currentUser.role === 'Programadores') ? '' : `
                 <div class="pack-actions">
+                    <button class="btn btn-secondary btn-small" onclick="toggleInput('${input.id}', ${!input.enabled})">
+                        ${input.enabled ? 'Pausar' : 'Activar'}
+                    </button>
                     <button class="btn btn-secondary btn-small" onclick="probeInput('${input.url}', '${input.id}')">Probe / Explorar</button>
                     <button class="btn btn-secondary btn-small" onclick="editInput('${input.id}')">Editar</button>
                     <button class="btn btn-danger btn-small" onclick="deleteInput('${input.id}')">Eliminar</button>
@@ -398,10 +441,31 @@ async function toggleStream(id, enable) {
     }
 }
 
+async function toggleInput(id, enable) {
+    const input = inputs.find(i => i.id === id);
+    if (!input) return;
+
+    const updated = {
+        name: input.name,
+        url: input.url,
+        is_video_pack: input.is_video_pack,
+        enabled: enable
+    };
+
+    const res = await apiCall(`/api/inputs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updated)
+    });
+    if (res) {
+        fetchInputs();
+    }
+}
+
 // --- ADD / EDIT INPUT HANDLERS ---
 document.getElementById('btn-new-input').addEventListener('click', () => {
     document.getElementById('input-id').value = '';
     formInput.reset();
+    document.getElementById('input-enabled').checked = true;
     document.getElementById('modal-input-title').textContent = 'Agregar Pack de Entrada';
     modalInput.style.display = 'block';
 });
@@ -414,6 +478,7 @@ async function editInput(id) {
     document.getElementById('input-name').value = input.name;
     document.getElementById('input-url').value = input.url;
     document.getElementById('input-type').value = input.is_video_pack ? 'videopack' : 'live';
+    document.getElementById('input-enabled').checked = input.enabled !== false;
     document.getElementById('modal-input-title').textContent = 'Editar Pack de Entrada';
     modalInput.style.display = 'block';
 }
@@ -436,15 +501,16 @@ formInput.addEventListener('submit', async (e) => {
     const name = document.getElementById('input-name').value;
     const url = document.getElementById('input-url').value;
     const is_video_pack = document.getElementById('input-type').value === 'videopack';
+    const enabled = document.getElementById('input-enabled').checked;
 
-    const payload = { name, url, is_video_pack };
+    const payload = { name, url, is_video_pack, enabled };
 
     let res;
     if (id) {
         // Edit
         res = await apiCall(`/api/inputs/${id}`, {
             method: 'PUT',
-            body: JSON.stringify({ ...payload, enabled: true })
+            body: JSON.stringify(payload)
         });
     } else {
         // New
@@ -466,8 +532,16 @@ function applyProgrammerStreamModalRestrictions() {
     const isProgrammer = currentUser && currentUser.role === 'Programadores';
     document.getElementById('stream-name').disabled = isProgrammer;
     document.getElementById('stream-input-id').disabled = isProgrammer;
-    document.getElementById('stream-output-url').disabled = isProgrammer;
-    document.getElementById('stream-interface').disabled = isProgrammer;
+    
+    const btnAddOutput = document.getElementById('btn-add-output');
+    if (btnAddOutput) btnAddOutput.disabled = isProgrammer;
+
+    const container = document.getElementById('stream-outputs-container');
+    if (container) {
+        container.querySelectorAll('input, select, button').forEach(el => {
+            el.disabled = isProgrammer;
+        });
+    }
     
     document.getElementById('stream-transcode-enabled').disabled = isProgrammer;
     document.getElementById('stream-transcode-video').disabled = isProgrammer;
@@ -477,7 +551,7 @@ function applyProgrammerStreamModalRestrictions() {
     document.getElementById('stream-limit-bitrate').disabled = isProgrammer;
 }
 
-document.getElementById('btn-new-stream').addEventListener('click', () => {
+document.getElementById('btn-new-stream').addEventListener('click', async () => {
     document.getElementById('stream-id').value = '';
     formStream.reset();
     document.getElementById('stream-enabled').checked = true;
@@ -500,11 +574,40 @@ document.getElementById('btn-new-stream').addEventListener('click', () => {
     document.getElementById('video-transcode-details').style.display = 'none';
     document.getElementById('audio-transcode-details').style.display = 'none';
 
-    populateStreamInterfaces('');
+    // Clear dynamic outputs and add initial row
+    document.getElementById('stream-outputs-container').innerHTML = '';
+    await loadNetworkInterfaces();
+    addOutputRow('', '', 'udp');
+
     applyProgrammerStreamModalRestrictions();
     document.getElementById('modal-stream-title').textContent = 'Agregar Canal / Salida';
     modalStream.style.display = 'block';
 });
+
+// Bind add output button
+const btnAddOutput = document.getElementById('btn-add-output');
+if (btnAddOutput) {
+    btnAddOutput.addEventListener('click', () => {
+        addOutputRow('', '', 'udp');
+    });
+}
+
+// Bind auto-suggest HLS path on stream name change
+document.getElementById('stream-name').addEventListener('input', () => {
+    const container = document.getElementById('stream-outputs-container');
+    if (!container) return;
+    const rows = container.querySelectorAll('.output-row');
+    rows.forEach(row => {
+        const typeSelect = row.querySelector('.output-type-select');
+        const urlInput = row.querySelector('.output-url-input');
+        if (typeSelect.value === 'hls') {
+            if (!urlInput.value || urlInput.value.startsWith('www/hls/')) {
+                suggestHlsPath(urlInput);
+            }
+        }
+    });
+});
+
 
 async function editStream(id) {
     const stream = streams.find(s => s.id === id);
@@ -513,7 +616,6 @@ async function editStream(id) {
     document.getElementById('stream-id').value = stream.id;
     document.getElementById('stream-name').value = stream.name;
     document.getElementById('stream-input-id').value = stream.input_id;
-    document.getElementById('stream-output-url').value = stream.output_url;
     document.getElementById('stream-enabled').checked = stream.enabled;
 
     // Load transcoding fields
@@ -540,8 +642,19 @@ async function editStream(id) {
     document.getElementById('video-transcode-details').style.display = transVideo ? 'block' : 'none';
     document.getElementById('audio-transcode-details').style.display = transAudio ? 'block' : 'none';
 
+    // Clear dynamic outputs and populate them
+    document.getElementById('stream-outputs-container').innerHTML = '';
+    await loadNetworkInterfaces();
+    if (stream.outputs && stream.outputs.length > 0) {
+        stream.outputs.forEach(out => {
+            addOutputRow(out.url, out.output_interface, out.type);
+        });
+    } else {
+        // Fallback to legacy single output format
+        addOutputRow(stream.output_url || '', stream.output_interface || '', 'udp');
+    }
+
     populateProgramsFromSelectedInput(stream.input_id, stream.program_number, stream.video_filename);
-    await populateStreamInterfaces(stream.output_interface);
     applyProgrammerStreamModalRestrictions();
 
     document.getElementById('modal-stream-title').textContent = 'Editar Canal / Salida';
@@ -565,7 +678,6 @@ formStream.addEventListener('submit', async (e) => {
     const name = document.getElementById('stream-name').value;
     const input_id = document.getElementById('stream-input-id').value;
     const enabled = document.getElementById('stream-enabled').checked;
-    const output_interface = document.getElementById('stream-interface').value;
 
     const transcode_enabled = document.getElementById('stream-transcode-enabled').checked;
     const transcode_video = document.getElementById('stream-transcode-video').checked;
@@ -581,7 +693,6 @@ formStream.addEventListener('submit', async (e) => {
 
     let program_number = 1;
     let video_filename = "";
-    let output_url = document.getElementById('stream-output-url').value;
 
     if (isVideoPack) {
         video_filename = document.getElementById('stream-video-filename').value;
@@ -597,13 +708,34 @@ formStream.addEventListener('submit', async (e) => {
         }
     }
 
+    // Collect dynamic outputs
+    const outputs = [];
+    const container = document.getElementById('stream-outputs-container');
+    if (container) {
+        const rows = container.querySelectorAll('.output-row');
+        rows.forEach(row => {
+            const type = row.querySelector('.output-type-select').value;
+            const url = row.querySelector('.output-url-input').value.trim();
+            const output_interface = row.querySelector('.output-iface-select').value;
+            if (url) {
+                outputs.push({ url, output_interface, type });
+            }
+        });
+    }
+
+    if (outputs.length === 0) {
+        alert('Por favor agrega al menos un destino de salida.');
+        return;
+    }
+
     const payload = {
         name,
         input_id,
         program_number,
-        output_url,
+        output_url: outputs[0].url,
         enabled,
-        output_interface,
+        output_interface: outputs[0].output_interface,
+        outputs,
         transcode_enabled,
         transcode_video,
         video_input_format,
@@ -686,7 +818,7 @@ async function probeInput(url, id = '') {
 }
 
 // Triggered from probe table to map a program to a channel
-function mapProbedProgram(progNum, progName) {
+async function mapProbedProgram(progNum, progName) {
     modalProbe.style.display = 'none';
     
     // Fill the add stream modal
@@ -700,12 +832,15 @@ function mapProbedProgram(progNum, progName) {
         populateProgramsFromSelectedInput(currentProbedInputId, progNum);
     }
     
-    populateStreamInterfaces('');
+    // Clear dynamic outputs and populate with initial preset
+    document.getElementById('stream-outputs-container').innerHTML = '';
+    await loadNetworkInterfaces();
     
-    // Preset target multicast output example (no @ to promote push syntax)
     const randomIpEnd = 100 + parseInt(progNum);
-    document.getElementById('stream-output-url').value = `udp://239.2.2.${randomIpEnd}:9009`;
+    const presetUrl = `udp://239.2.2.${randomIpEnd}:9009`;
+    addOutputRow(presetUrl, '', 'udp');
     
+    applyProgrammerStreamModalRestrictions();
     document.getElementById('modal-stream-title').textContent = 'Agregar Canal / Salida';
     modalStream.style.display = 'block';
 }
@@ -1653,24 +1788,145 @@ async function init() {
     }, 1000);
 }
 
+let networkInterfaces = [];
+
+async function loadNetworkInterfaces() {
+    try {
+        const interfaces = await apiCall('/api/interfaces');
+        if (interfaces) {
+            networkInterfaces = interfaces;
+        }
+    } catch (e) {
+        console.error('Error fetching interfaces:', e);
+    }
+}
+
 async function populateStreamInterfaces(selectedInterface = '') {
-    const streamInterfaceDropdown = document.getElementById('stream-interface');
-    if (!streamInterfaceDropdown) return;
+    await loadNetworkInterfaces();
+}
+
+function getPlaceholderForType(type) {
+    switch (type) {
+        case 'udp':
+            return 'udp://239.2.2.109:9009';
+        case 'srt':
+            return 'srt://127.0.0.1:4001?mode=listener';
+        case 'rtp':
+            return 'rtp://239.1.1.114:1014';
+        case 'hls':
+            return 'www/hls/canal/index.m3u8';
+        default:
+            return '';
+    }
+}
+
+function slugify(text) {
+    return text.toString().toLowerCase().trim()
+        .replace(/\s+/g, '-')           // Replace spaces with -
+        .replace(/&/g, '-y-')           // Replace & with 'y'
+        .replace(/[^\w\-]+/g, '')       // Remove all non-word chars
+        .replace(/\-\-+/g, '-');        // Replace multiple - with single -
+}
+
+function suggestHlsPath(urlInput) {
+    const streamName = document.getElementById('stream-name').value;
+    if (streamName) {
+        const slug = slugify(streamName);
+        urlInput.value = `www/hls/${slug}/index.m3u8`;
+    }
+}
+
+function addOutputRow(url = '', iface = '', type = 'udp') {
+    const container = document.getElementById('stream-outputs-container');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'output-row';
+
+    // Type select
+    const typeSelect = document.createElement('select');
+    typeSelect.className = 'output-type-select';
+    ['udp', 'srt', 'rtp', 'hls'].forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t.toUpperCase();
+        if (t === type) opt.selected = true;
+        typeSelect.appendChild(opt);
+    });
+
+    // URL input
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.className = 'output-url-input';
+    urlInput.placeholder = getPlaceholderForType(type);
+    urlInput.value = url;
+    urlInput.required = true;
+
+    // Interface select
+    const ifaceSelect = document.createElement('select');
+    ifaceSelect.className = 'output-iface-select';
     
-    const interfaces = await apiCall('/api/interfaces');
-    if (interfaces) {
-        streamInterfaceDropdown.innerHTML = '<option value="">Por defecto (Cualquiera / Auto)</option>';
-        interfaces.forEach(iface => {
-            const option = document.createElement('option');
-            option.value = iface.name;
-            let suffix = '';
-            if (iface.is_loopback) suffix = ' (Loopback)';
-            else if (!iface.is_up) suffix = ' (Desconectado)';
-            option.textContent = `${iface.name} - ${iface.ip}${suffix}`;
-            streamInterfaceDropdown.appendChild(option);
-        });
-        
-        streamInterfaceDropdown.value = selectedInterface || '';
+    // Populate interface select options
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'Auto / Defecto';
+    ifaceSelect.appendChild(defaultOpt);
+
+    networkInterfaces.forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = i.name;
+        let suffix = '';
+        if (i.is_loopback) suffix = ' (Loopback)';
+        else if (!i.is_up) suffix = ' (Desconectado)';
+        opt.textContent = `${i.name} - ${i.ip}${suffix}`;
+        if (i.name === iface) opt.selected = true;
+        ifaceSelect.appendChild(opt);
+    });
+
+    // If type is HLS, disable interface select
+    if (type === 'hls') {
+        ifaceSelect.disabled = true;
+    }
+
+    // Bind type change event
+    typeSelect.addEventListener('change', (e) => {
+        const currentType = e.target.value;
+        urlInput.placeholder = getPlaceholderForType(currentType);
+        if (currentType === 'hls') {
+            ifaceSelect.disabled = true;
+            ifaceSelect.value = '';
+            suggestHlsPath(urlInput);
+        } else {
+            const isProgrammer = currentUser && currentUser.role === 'Programadores';
+            ifaceSelect.disabled = isProgrammer;
+        }
+    });
+
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-danger btn-small';
+    removeBtn.textContent = '✕';
+    removeBtn.title = 'Eliminar este destino';
+    removeBtn.addEventListener('click', () => {
+        row.remove();
+    });
+
+    // Append everything to row
+    row.appendChild(typeSelect);
+    row.appendChild(urlInput);
+    row.appendChild(ifaceSelect);
+    row.appendChild(removeBtn);
+
+    container.appendChild(row);
+
+    // If programmer role is active, disable mutation immediately
+    const isProgrammer = currentUser && currentUser.role === 'Programadores';
+    if (isProgrammer) {
+        typeSelect.disabled = true;
+        urlInput.disabled = true;
+        ifaceSelect.disabled = true;
+        removeBtn.disabled = true;
     }
 }
 

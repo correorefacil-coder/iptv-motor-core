@@ -29,12 +29,12 @@ int main(int argc, char* argv[]) {
 
     LOG_INFO("Iniciando Antigravity IPTV Gateway...");
 
-    int port = 8000;
+    int port = 45020;
     if (argc > 1) {
         try {
             port = std::stoi(argv[1]);
         } catch (...) {
-            LOG_WARN("Puerto inválido proporcionado en argumentos. Usando puerto por defecto: 8000");
+            LOG_WARN("Puerto inválido proporcionado en argumentos. Usando puerto por defecto: 45020");
         }
     }
 

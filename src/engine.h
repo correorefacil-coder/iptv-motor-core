@@ -131,14 +131,17 @@ struct ScheduledMessage {
     std::vector<std::string> channel_ids;
 };
 
-class InputSource;
+struct OutputDestination {
+    std::string url;
+    std::string output_interface;
+    std::string type; // "udp", "srt", "rtp", "hls"
+};
 
 // Represents a single channel output stream (SPTS) demuxed from an input source (MPTS)
 class OutputStream {
 public:
     OutputStream(const std::string& id, const std::string& name, const std::string& input_id,
-                 int program_number, const std::string& output_url, bool enabled,
-                 const std::string& output_interface,
+                 int program_number, const std::vector<OutputDestination>& outputs, bool enabled,
                  const std::string& input_url, bool is_video_pack,
                  bool transcode_enabled = false, bool transcode_video = false,
                  const std::string& video_input_format = "", const std::string& video_output_format = "",
@@ -173,6 +176,7 @@ public:
     void SetEnabled(bool enabled);
     std::string GetOutputInterface() const { return output_interface_; }
     std::string GetVideoFilename() const { return video_filename_; }
+    const std::vector<OutputDestination>& GetOutputs() const { return outputs_; }
 
 private:
     void OutputLoop();
@@ -186,6 +190,7 @@ private:
     int program_number_;
     std::string output_url_;
     std::string output_interface_;
+    std::vector<OutputDestination> outputs_;
     std::atomic<bool> enabled_{false};
     std::atomic<bool> running_{false};
 
@@ -304,18 +309,18 @@ public:
     bool SaveConfig();
 
     // Inputs Management
-    bool AddInput(const std::string& name, const std::string& url, bool is_video_pack, std::string& id_out);
+    bool AddInput(const std::string& name, const std::string& url, bool enabled, bool is_video_pack, std::string& id_out);
     bool UpdateInput(const std::string& id, const std::string& name, const std::string& url, bool enabled, bool is_video_pack);
     bool DeleteInput(const std::string& id);
 
     // Streams (Outputs) Management
     bool AddStream(const std::string& name, const std::string& input_id, int program_number,
-                   const std::string& output_url, bool enabled, const std::string& output_interface,
+                   const std::vector<OutputDestination>& outputs, bool enabled,
                    bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                    const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
                    const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename, std::string& id_out);
     bool UpdateStream(const std::string& id, const std::string& name, const std::string& input_id,
-                      int program_number, const std::string& output_url, bool enabled, const std::string& output_interface,
+                      int program_number, const std::vector<OutputDestination>& outputs, bool enabled,
                       bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                       const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
                       const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename);

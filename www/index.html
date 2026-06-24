@@ -134,6 +134,10 @@
                     </div>
                     <small class="form-help">Para UDP multicast usa udp://@239.1.1.1:1234. Para archivos de video locales, usa el botón Examinar.</small>
                 </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="input-enabled" checked>
+                    <label for="input-enabled">Habilitar fuente de entrada inmediatamente</label>
+                </div>
                 <div class="form-actions">
                     <button type="button" id="btn-cancel-input" class="btn btn-secondary">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Guardar Pack</button>
@@ -177,17 +181,14 @@
                     <small class="form-help">Selecciona el archivo de video que deseas reproducir en este canal.</small>
                 </div>
                 <div class="form-group">
-                    <label for="stream-output-url">URL de Salida (UDP Multicast o SRT)</label>
-                    <input type="text" id="stream-output-url" required placeholder="Ej. udp://239.2.2.109:9009 o srt://127.0.0.1:4001?mode=listener">
+                    <label style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>Destinos de Salida</span>
+                        <button type="button" id="btn-add-output" class="btn btn-secondary btn-small">+ Agregar Salida</button>
+                    </label>
+                    <div id="stream-outputs-container" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Dynamic output rows will be added here -->
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="stream-interface">Tarjeta de Red para Salida (NIC)</label>
-                    <select id="stream-interface">
-                        <option value="">Por defecto (Cualquiera / Auto)</option>
-                    </select>
-                    <small class="form-help">Forzar que el flujo de este canal salga a través de esta tarjeta de red.</small>
-                </div>
-                
                 <!-- Transcoding Section -->
                 <div class="form-group checkbox-group">
                     <input type="checkbox" id="stream-transcode-enabled">

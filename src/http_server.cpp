@@ -733,10 +733,11 @@ void HTTPServer::ServerLoop() {
             auto body = json::parse(req.body);
             std::string name = body["name"];
             std::string url = body["url"];
+            bool enabled = body.value("enabled", true);
             bool is_video_pack = body.value("is_video_pack", false);
             
             std::string id_out;
-            if (StreamerEngine::GetInstance().AddInput(name, url, is_video_pack, id_out)) {
+            if (StreamerEngine::GetInstance().AddInput(name, url, enabled, is_video_pack, id_out)) {
                 json r;
                 r["success"] = true;
                 r["id"] = id_out;
@@ -878,9 +879,27 @@ void HTTPServer::ServerLoop() {
             std::string name = body["name"];
             std::string input_id = body["input_id"];
             int program_number = body["program_number"];
-            std::string output_url = body["output_url"];
             bool enabled = body.value("enabled", true);
-            std::string output_interface = body.value("output_interface", "");
+
+            std::vector<OutputDestination> outputs;
+            if (body.contains("outputs") && body["outputs"].is_array()) {
+                for (const auto& out_item : body["outputs"]) {
+                    OutputDestination dest;
+                    dest.url = out_item.value("url", "");
+                    dest.output_interface = out_item.value("output_interface", "");
+                    dest.type = out_item.value("type", "");
+                    outputs.push_back(dest);
+                }
+            } else {
+                OutputDestination dest;
+                dest.url = body.value("output_url", "");
+                dest.output_interface = body.value("output_interface", "");
+                if (dest.url.rfind("udp://", 0) == 0) dest.type = "udp";
+                else if (dest.url.rfind("srt://", 0) == 0) dest.type = "srt";
+                else if (dest.url.rfind("rtp://", 0) == 0) dest.type = "rtp";
+                else dest.type = "hls";
+                outputs.push_back(dest);
+            }
 
             bool transcode_enabled = body.value("transcode_enabled", false);
             bool transcode_video = body.value("transcode_video", false);
@@ -893,14 +912,15 @@ void HTTPServer::ServerLoop() {
             std::string video_filename = body.value("video_filename", "");
 
             std::string id_out;
-            if (StreamerEngine::GetInstance().AddStream(name, input_id, program_number, output_url, enabled, output_interface,
+            if (StreamerEngine::GetInstance().AddStream(name, input_id, program_number, outputs, enabled,
                                                        transcode_enabled, transcode_video, video_input_format, video_output_format,
                                                        transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, id_out)) {
                 json r;
                 r["success"] = true;
                 r["id"] = id_out;
                 res.set_content(r.dump(), "application/json");
-                UserLogger::GetInstance().LogAction(user, "Agregó canal '" + name + "' (Salida: " + output_url + ")");
+                std::string log_url = outputs.empty() ? "" : outputs[0].url;
+                UserLogger::GetInstance().LogAction(user, "Agregó canal '" + name + "' (Salida: " + log_url + ")");
             } else {
                 res.status = 500;
                 res.set_content("{\"success\":false,\"error\":\"Error interno al agregar stream\"}", "application/json");
@@ -921,9 +941,27 @@ void HTTPServer::ServerLoop() {
             std::string name = body["name"];
             std::string input_id = body["input_id"];
             int program_number = body["program_number"];
-            std::string output_url = body["output_url"];
             bool enabled = body.value("enabled", true);
-            std::string output_interface = body.value("output_interface", "");
+
+            std::vector<OutputDestination> outputs;
+            if (body.contains("outputs") && body["outputs"].is_array()) {
+                for (const auto& out_item : body["outputs"]) {
+                    OutputDestination dest;
+                    dest.url = out_item.value("url", "");
+                    dest.output_interface = out_item.value("output_interface", "");
+                    dest.type = out_item.value("type", "");
+                    outputs.push_back(dest);
+                }
+            } else {
+                OutputDestination dest;
+                dest.url = body.value("output_url", "");
+                dest.output_interface = body.value("output_interface", "");
+                if (dest.url.rfind("udp://", 0) == 0) dest.type = "udp";
+                else if (dest.url.rfind("srt://", 0) == 0) dest.type = "srt";
+                else if (dest.url.rfind("rtp://", 0) == 0) dest.type = "rtp";
+                else dest.type = "hls";
+                outputs.push_back(dest);
+            }
 
             bool transcode_enabled = body.value("transcode_enabled", false);
             bool transcode_video = body.value("transcode_video", false);
@@ -958,11 +996,20 @@ void HTTPServer::ServerLoop() {
                     return;
                 }
 
+                bool outputs_changed = false;
+                if (body.contains("outputs") && body["outputs"].is_array() && existing_stream.contains("outputs")) {
+                    if (body["outputs"] != existing_stream["outputs"]) {
+                        outputs_changed = true;
+                    }
+                } else if (body.value("output_url", "") != existing_stream.value("output_url", "") ||
+                           body.value("output_interface", "") != existing_stream.value("output_interface", "")) {
+                    outputs_changed = true;
+                }
+
                 if (body.value("name", "") != existing_stream.value("name", "") ||
                     body.value("input_id", "") != existing_stream.value("input_id", "") ||
                     body.value("program_number", 0) != existing_stream.value("program_number", 0) ||
-                    body.value("output_url", "") != existing_stream.value("output_url", "") ||
-                    body.value("output_interface", "") != existing_stream.value("output_interface", "") ||
+                    outputs_changed ||
                     body.value("transcode_enabled", false) != existing_stream.value("transcode_enabled", false) ||
                     body.value("transcode_video", false) != existing_stream.value("transcode_video", false) ||
                     body.value("transcode_audio", false) != existing_stream.value("transcode_audio", false) ||
@@ -974,11 +1021,12 @@ void HTTPServer::ServerLoop() {
                 }
             }
 
-            if (StreamerEngine::GetInstance().UpdateStream(id, name, input_id, program_number, output_url, enabled, output_interface,
+            if (StreamerEngine::GetInstance().UpdateStream(id, name, input_id, program_number, outputs, enabled,
                                                           transcode_enabled, transcode_video, video_input_format, video_output_format,
                                                           transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename)) {
                 res.set_content("{\"success\":true}", "application/json");
-                UserLogger::GetInstance().LogAction(user, "Modificó canal '" + name + "' (Salida: " + output_url + ", Estado: " + (enabled ? "Activado" : "Pausado") + ")");
+                std::string log_url = outputs.empty() ? "" : outputs[0].url;
+                UserLogger::GetInstance().LogAction(user, "Modificó canal '" + name + "' (Salida: " + log_url + ", Estado: " + (enabled ? "Activado" : "Pausado") + ")");
             } else {
                 res.status = 404;
                 res.set_content("{\"success\":false,\"error\":\"Stream no encontrado\"}", "application/json");

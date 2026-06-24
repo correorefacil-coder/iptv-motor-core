@@ -7,6 +7,16 @@
 #include <fstream>
 #include <algorithm>
 #include <filesystem>
+#include <sys/stat.h>
+
+static bool IsNvidiaGPUPresent() {
+#ifdef _WIN32
+    return false;
+#else
+    struct stat buffer;
+    return (stat("/dev/nvidia0", &buffer) == 0);
+#endif
+}
 
 // --- Helper structure to bridge input and output ---
 struct StreamInfo {
@@ -392,9 +402,15 @@ void OutputStream::OutputLoopVideoPack() {
         bool use_transcoding = current_transcode_enabled || force_transcode || force_ffmpeg;
 
         if (use_transcoding) {
-            std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error -hwaccel cuda -copyts -i pipe:0 ";
-            
             bool do_video_transcode = current_transcode_video || (current_limit_bitrate > 0) || force_transcode;
+            bool use_cuda = do_video_transcode && IsNvidiaGPUPresent();
+            
+            std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error ";
+            if (use_cuda) {
+                ffmpeg_cmd += "-hwaccel cuda ";
+            }
+            ffmpeg_cmd += "-copyts -i pipe:0 ";
+            
             if (do_video_transcode) {
                 std::string target_format = video_output_format_;
                 if (!current_transcode_video) {
@@ -409,13 +425,21 @@ void OutputStream::OutputLoopVideoPack() {
                     }
                 }
 
-                std::string codec = "h264_nvenc";
-                if (target_format == "hevc") codec = "hevc_nvenc";
-                else if (target_format == "mpeg2video") codec = "mpeg2video";
+                std::string codec = "libx264";
+                if (IsNvidiaGPUPresent()) {
+                    codec = "h264_nvenc";
+                    if (target_format == "hevc") codec = "hevc_nvenc";
+                    else if (target_format == "mpeg2video") codec = "mpeg2video";
+                } else {
+                    if (target_format == "hevc") codec = "libx265";
+                    else if (target_format == "mpeg2video") codec = "mpeg2video";
+                }
                 
                 ffmpeg_cmd += "-c:v " + codec + " ";
                 if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
                     ffmpeg_cmd += "-preset p1 -tune ll -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+                } else if (codec == "libx264" || codec == "libx265") {
+                    ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
                 }
                 
                 if (!current_msg.empty()) {
@@ -925,10 +949,16 @@ void OutputStream::OutputLoop() {
                 bool use_transcoding = transcode_enabled_ || force_transcode || force_ffmpeg;
 
                 if (use_transcoding) {
-                    std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error -hwaccel cuda -copyts -i pipe:0 ";
+                    bool do_video_transcode = transcode_video_ || (limit_bitrate_ > 0) || force_transcode;
+                    bool use_cuda = do_video_transcode && IsNvidiaGPUPresent();
+                    
+                    std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error ";
+                    if (use_cuda) {
+                        ffmpeg_cmd += "-hwaccel cuda ";
+                    }
+                    ffmpeg_cmd += "-copyts -i pipe:0 ";
                     
                     // Video options
-                    bool do_video_transcode = transcode_video_ || (limit_bitrate_ > 0) || force_transcode;
                     if (do_video_transcode) {
                         std::string target_format = video_output_format_;
                         if (!transcode_video_) {
@@ -944,13 +974,21 @@ void OutputStream::OutputLoop() {
                             }
                         }
 
-                        std::string codec = "h264_nvenc";
-                        if (target_format == "hevc") codec = "hevc_nvenc";
-                        else if (target_format == "mpeg2video") codec = "mpeg2video";
+                        std::string codec = "libx264";
+                        if (IsNvidiaGPUPresent()) {
+                            codec = "h264_nvenc";
+                            if (target_format == "hevc") codec = "hevc_nvenc";
+                            else if (target_format == "mpeg2video") codec = "mpeg2video";
+                        } else {
+                            if (target_format == "hevc") codec = "libx265";
+                            else if (target_format == "mpeg2video") codec = "mpeg2video";
+                        }
                         
                         ffmpeg_cmd += "-c:v " + codec + " ";
                         if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
                             ffmpeg_cmd += "-preset p1 -tune ll -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+                        } else if (codec == "libx264" || codec == "libx265") {
+                            ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
                         }
                         
                         if (!active_msg.empty()) {

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(AntigravityIPTV CXX)
+project(SoftproductivaIPTV CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,7 +15,7 @@ pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
 find_package(Threads REQUIRED)
 
 # Source files
-add_executable(antigravity_iptv
+add_executable(softproductiva_iptv
     src/main.cpp
     src/logger.cpp
     src/engine.cpp
@@ -23,7 +23,7 @@ add_executable(antigravity_iptv
 )
 
 # Header search paths
-target_include_directories(antigravity_iptv PRIVATE
+target_include_directories(softproductiva_iptv PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${AVFORMAT_INCLUDE_DIRS}
     ${AVCODEC_INCLUDE_DIRS}
@@ -32,7 +32,7 @@ target_include_directories(antigravity_iptv PRIVATE
 )
 
 # Library linking
-target_link_libraries(antigravity_iptv PRIVATE
+target_link_libraries(softproductiva_iptv PRIVATE
     PkgConfig::AVFORMAT
     PkgConfig::AVCODEC
     PkgConfig::AVUTIL

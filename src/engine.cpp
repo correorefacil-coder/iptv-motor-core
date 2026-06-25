@@ -241,12 +241,7 @@ static int write_to_ffmpeg_pipe(void* opaque, uint8_t* buf, int buf_size) {
 }
 
 void OutputStream::OutputLoopVideoPack() {
-    AVFormatContext* out_fmt_ctx = nullptr;
     AVFormatContext* in_fmt_ctx = nullptr;
-    std::map<int, int> stream_mapping;
-    std::map<int, AVBSFContext*> bsf_contexts;
-    std::map<int, int64_t> last_written_dts;
-    bool initialized = false;
     
     std::string current_video_filename = video_filename_;
     std::string current_msg = StreamerEngine::GetInstance().GetActiveMessageForStream(id_);
@@ -256,31 +251,10 @@ void OutputStream::OutputLoopVideoPack() {
     int current_limit_bitrate = limit_bitrate_;
 
     auto cleanup = [&]() {
-        last_written_dts.clear();
-        for (auto& pair : bsf_contexts) {
-            if (pair.second) {
-                av_bsf_free(&pair.second);
-            }
-        }
-        bsf_contexts.clear();
-
-        if (out_fmt_ctx) {
-            if (initialized) {
-                av_write_trailer(out_fmt_ctx);
-            }
-            if (out_fmt_ctx->pb) {
-                if (out_fmt_ctx->flags & AVFMT_FLAG_CUSTOM_IO) {
-                    av_freep(&out_fmt_ctx->pb->buffer);
-                    avio_context_free(&out_fmt_ctx->pb);
-                } else {
-                    avio_closep(&out_fmt_ctx->pb);
-                }
-            }
-            avformat_free_context(out_fmt_ctx);
-            out_fmt_ctx = nullptr;
-        }
-
         if (ffmpeg_pipe_) {
+            // Write 'q\n' to stdin of ffmpeg to shut it down gracefully
+            fwrite("q\n", 1, 2, ffmpeg_pipe_);
+            fflush(ffmpeg_pipe_);
             pclose(ffmpeg_pipe_);
             ffmpeg_pipe_ = nullptr;
         }
@@ -289,9 +263,6 @@ void OutputStream::OutputLoopVideoPack() {
             avformat_close_input(&in_fmt_ctx);
             in_fmt_ctx = nullptr;
         }
-
-        initialized = false;
-        stream_mapping.clear();
     };
 
     while (running_) {
@@ -334,42 +305,7 @@ void OutputStream::OutputLoopVideoPack() {
             continue;
         }
 
-        std::string resolved_url = "";
-        std::string out_iface = "";
-        if (!outputs_.empty()) {
-            resolved_url = outputs_[0].url;
-            out_iface = outputs_[0].output_interface;
-        }
-        if (!out_iface.empty()) {
-            std::string iface_ip = GetInterfaceIP(out_iface);
-            if (!iface_ip.empty()) {
-                if (resolved_url.rfind("udp://", 0) == 0 || resolved_url.rfind("srt://", 0) == 0) {
-                    if (resolved_url.find("localaddr=") == std::string::npos) {
-                        if (resolved_url.find('?') == std::string::npos) {
-                            resolved_url += "?localaddr=" + iface_ip;
-                        } else {
-                            resolved_url += "&localaddr=" + iface_ip;
-                        }
-                    }
-                }
-            }
-        }
-
-        ret = avformat_alloc_output_context2(&out_fmt_ctx, nullptr, "mpegts", nullptr);
-        if (ret < 0) {
-            char err_buf[256];
-            av_strerror(ret, err_buf, sizeof(err_buf));
-            {
-                std::lock_guard<std::mutex> stat_lock(stats_mutex_);
-                error_message_ = "Error alloc output: " + std::string(err_buf);
-            }
-            LOG_ERROR("Canal [" + name_ + "]: " + error_message_);
-            cleanup();
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            current_video_filename = video_filename_;
-            continue;
-        }
-
+        // Extracción de códecs para mostrar en el panel
         std::string det_v = "Auto";
         std::string det_a = "Auto";
         for (unsigned int i = 0; i < in_fmt_ctx->nb_streams; i++) {
@@ -388,233 +324,168 @@ void OutputStream::OutputLoopVideoPack() {
             detected_audio_codec_ = det_a;
         }
 
-        bool force_transcode = !current_msg.empty();
-        
-        bool force_ffmpeg = !outputs_.empty();
-        bool use_transcoding = current_transcode_enabled || force_transcode || force_ffmpeg;
-
-        if (use_transcoding) {
-            bool do_video_transcode = current_transcode_video || (current_limit_bitrate > 0) || force_transcode;
-            bool use_cuda = do_video_transcode && IsNvidiaGPUPresent();
-            
-            std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error ";
-            if (use_cuda) {
-                ffmpeg_cmd += "-hwaccel cuda ";
-            }
-            ffmpeg_cmd += "-copyts -i pipe:0 ";
-            
-            if (do_video_transcode) {
-                std::string target_format = video_output_format_;
-                if (!current_transcode_video) {
-                    std::string det_v_lower = det_v;
-                    std::transform(det_v_lower.begin(), det_v_lower.end(), det_v_lower.begin(), ::tolower);
-                    if (det_v_lower == "hevc" || det_v_lower == "h265") {
-                        target_format = "hevc";
-                    } else if (det_v_lower == "mpeg2" || det_v_lower == "mpeg2video") {
-                        target_format = "mpeg2video";
-                    } else {
-                        target_format = "h264";
-                    }
+        // Determinar tasa de bits esperada para la simulación de estadísticas
+        int64_t expected_bitrate_bps = 2500000; // Default fallback to 2.5 Mbps
+        if (current_transcode_enabled && current_limit_bitrate > 0) {
+            expected_bitrate_bps = current_limit_bitrate * 1000;
+        } else if (in_fmt_ctx->bit_rate > 0) {
+            expected_bitrate_bps = in_fmt_ctx->bit_rate;
+        } else {
+            // Estimar tasa de bits basada en el tamaño del archivo y su duración
+            try {
+                uint64_t file_size = std::filesystem::file_size(file_path);
+                double duration_sec = 0.0;
+                if (in_fmt_ctx->duration != AV_NOPTS_VALUE) {
+                    duration_sec = in_fmt_ctx->duration / (double)AV_TIME_BASE;
                 }
-
-                std::string codec = "libx264";
-                if (IsNvidiaGPUPresent()) {
-                    codec = "h264_nvenc";
-                    if (target_format == "hevc") codec = "hevc_nvenc";
-                    else if (target_format == "mpeg2video") codec = "mpeg2video";
-                } else {
-                    if (target_format == "hevc") codec = "libx265";
-                    else if (target_format == "mpeg2video") codec = "mpeg2video";
+                if (duration_sec > 0.5) {
+                    expected_bitrate_bps = static_cast<int64_t>((file_size * 8.0) / duration_sec);
                 }
-                
-                ffmpeg_cmd += "-c:v " + codec + " ";
-                if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                    ffmpeg_cmd += "-preset p1 -tune ll -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
-                } else if (codec == "libx264" || codec == "libx265") {
-                    ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
-                }
-                
-                if (!current_msg.empty()) {
-                    std::string escaped_msg = "";
-                    for (char c : current_msg) {
-                        if (c == '\'') {
-                            escaped_msg += "'\\''";
-                        } else if (c == ',') {
-                            escaped_msg += "\\\\,";
-                        } else if (c == ':') {
-                            escaped_msg += "\\\\:";
-                        } else if (c == '\\') {
-                            escaped_msg += "\\\\\\\\";
-                        } else {
-                            escaped_msg += c;
-                        }
-                    }
-                    ffmpeg_cmd += "-vf \"drawtext=fontfile=/usr/share/fonts/truetype/freefont/FreeSans.ttf:text='" + escaped_msg + "':expansion=none:x=(w-text_w)/2:y=h-50:fontsize=32:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=10\" ";
-                }
-                
-                if (current_limit_bitrate > 0) {
-                    int v_bitrate = std::max(200, current_limit_bitrate - 128);
-                    ffmpeg_cmd += "-b:v " + std::to_string(v_bitrate) + "k -maxrate " + std::to_string(v_bitrate) + "k -bufsize " + std::to_string(2 * v_bitrate) + "k ";
-                }
-            } else {
-                ffmpeg_cmd += "-c:v copy ";
-            }
-            
-            if (current_transcode_audio) {
-                std::string codec = "aac";
-                if (audio_output_format_ == "mp3") codec = "libmp3lame";
-                else if (audio_output_format_ == "ac3") codec = "ac3";
-                
-                ffmpeg_cmd += "-c:a " + codec + " -b:a 128k ";
-            } else {
-                ffmpeg_cmd += "-c:a copy ";
-            }
-            
-            std::string outputs_str = "";
-            for (const auto& dest : outputs_) {
-                std::string r_url = dest.url;
-                std::string o_iface = dest.output_interface;
-                if (!o_iface.empty()) {
-                    std::string iface_ip = GetInterfaceIP(o_iface);
-                    if (!iface_ip.empty()) {
-                        if (r_url.rfind("udp://", 0) == 0 || r_url.rfind("srt://", 0) == 0 || r_url.rfind("rtp://", 0) == 0) {
-                            if (r_url.find("localaddr=") == std::string::npos) {
-                                if (r_url.find('?') == std::string::npos) {
-                                    r_url += "?localaddr=" + iface_ip;
-                                } else {
-                                    r_url += "&localaddr=" + iface_ip;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (dest.type == "hls" || r_url.rfind("hls://", 0) == 0 || r_url.find(".m3u8") != std::string::npos) {
-                    try {
-                        std::filesystem::path p(r_url);
-                        std::filesystem::create_directories(p.parent_path());
-                    } catch (...) {}
-                    outputs_str += " -f hls -hls_time 2 -hls_list_size 5 -hls_flags delete_segments \"" + r_url + "\"";
-                } else if (dest.type == "rtp" || r_url.rfind("rtp://", 0) == 0) {
-                    outputs_str += " -f rtp_mpegts \"" + r_url + "\"";
-                } else {
-                    std::string optimized_url = r_url;
-                    if (optimized_url.rfind("udp://", 0) == 0) {
-                        if (optimized_url.find("pkt_size=") == std::string::npos) {
-                            if (optimized_url.find('?') == std::string::npos) {
-                                optimized_url += "?pkt_size=1316";
-                            } else {
-                                optimized_url += "&pkt_size=1316";
-                            }
-                        }
-                    }
-                    outputs_str += " -f mpegts \"" + optimized_url + "\"";
-                }
-            }
-            ffmpeg_cmd += outputs_str;
-            
-            LOG_INFO("Canal [" + name_ + "]: Iniciando comando de transcodificación (VideoPack): " + ffmpeg_cmd);
-            
-            ffmpeg_pipe_ = popen(ffmpeg_cmd.c_str(), "w");
-            if (!ffmpeg_pipe_) {
-                {
-                    std::lock_guard<std::mutex> stat_lock(stats_mutex_);
-                    error_message_ = "Error al abrir pipe de FFmpeg para transcodificación.";
-                }
-                LOG_ERROR("Canal [" + name_ + "]: " + error_message_);
-                cleanup();
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                current_video_filename = video_filename_;
-                continue;
-            }
+            } catch (...) {}
         }
 
-        bool streams_ok = true;
-        for (unsigned int i = 0; i < in_fmt_ctx->nb_streams; i++) {
-            AVStream* in_stream = in_fmt_ctx->streams[i];
-            AVStream* out_stream = avformat_new_stream(out_fmt_ctx, nullptr);
-            if (!out_stream) {
-                LOG_ERROR("Canal [" + name_ + "]: No se pudo crear nuevo stream de salida.");
-                streams_ok = false;
-                break;
-            }
-            avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
-            out_stream->codecpar->codec_tag = 0;
-            out_stream->time_base = in_stream->time_base;
-            stream_mapping[i] = out_stream->index;
-
-            AVCodecParameters* cp = in_stream->codecpar;
-            const AVBitStreamFilter* bsf = nullptr;
-            if (cp->extradata_size > 0 && cp->extradata[0] == 1) {
-                if (cp->codec_id == AV_CODEC_ID_H264) {
-                    bsf = av_bsf_get_by_name("h264_mp4toannexb");
-                } else if (cp->codec_id == AV_CODEC_ID_HEVC) {
-                    bsf = av_bsf_get_by_name("hevc_mp4toannexb");
-                }
-            } else if (cp->extradata_size > 0) {
-                if (cp->codec_id == AV_CODEC_ID_H264 || cp->codec_id == AV_CODEC_ID_HEVC) {
-                    bsf = av_bsf_get_by_name("dump_extra");
-                }
-            }
-
-            if (bsf) {
-                AVBSFContext* bsf_ctx = nullptr;
-                int bsf_ret = av_bsf_alloc(bsf, &bsf_ctx);
-                if (bsf_ret >= 0) {
-                    avcodec_parameters_copy(bsf_ctx->par_in, cp);
-                    bsf_ctx->time_base_in = in_stream->time_base;
-                    bsf_ret = av_bsf_init(bsf_ctx);
-                    if (bsf_ret >= 0) {
-                        bsf_contexts[out_stream->index] = bsf_ctx;
-                        avcodec_parameters_copy(out_stream->codecpar, bsf_ctx->par_out);
-                    } else {
-                        av_bsf_free(&bsf_ctx);
-                    }
-                }
-            }
+        // Una vez extraída la información que necesitamos del in_fmt_ctx, podemos cerrarlo para que FFmpeg lo abra de manera exclusiva
+        if (in_fmt_ctx) {
+            avformat_close_input(&in_fmt_ctx);
+            in_fmt_ctx = nullptr;
         }
 
-        if (!streams_ok) {
-            cleanup();
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+        if (outputs_.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
             current_video_filename = video_filename_;
             continue;
         }
 
-        if (use_transcoding) {
-            const int avio_buffer_size = 4096;
-            unsigned char* avio_buffer = (unsigned char*)av_malloc(avio_buffer_size);
-            out_fmt_ctx->pb = avio_alloc_context(
-                avio_buffer, avio_buffer_size,
-                1, ffmpeg_pipe_, nullptr, &write_to_ffmpeg_pipe, nullptr
-            );
-            out_fmt_ctx->flags |= AVFMT_FLAG_CUSTOM_IO;
-        } else if (!(out_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
-            AVDictionary* opts = nullptr;
-            int open_ret = avio_open2(&out_fmt_ctx->pb, resolved_url.c_str(), AVIO_FLAG_WRITE, nullptr, &opts);
-            if (opts) av_dict_free(&opts);
-            if (open_ret < 0) {
-                char err_buf[256];
-                av_strerror(open_ret, err_buf, sizeof(err_buf));
-                {
-                    std::lock_guard<std::mutex> lock(stats_mutex_);
-                    error_message_ = "Error abriendo salida: " + std::string(err_buf);
+        bool force_transcode = !current_msg.empty();
+        bool do_video_transcode = current_transcode_video || (current_limit_bitrate > 0) || force_transcode;
+        bool use_cuda = do_video_transcode && IsNvidiaGPUPresent();
+
+        // Construir comando de ffmpeg
+        std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error ";
+        if (use_cuda) {
+            ffmpeg_cmd += "-hwaccel cuda ";
+        }
+        // -re para leer en tiempo real
+        // -stream_loop -1 para bucle infinito natively
+        ffmpeg_cmd += "-re -stream_loop -1 -i \"" + file_path + "\" ";
+
+        if (do_video_transcode) {
+            std::string target_format = video_output_format_;
+            if (!current_transcode_video) {
+                std::string det_v_lower = det_v;
+                std::transform(det_v_lower.begin(), det_v_lower.end(), det_v_lower.begin(), ::tolower);
+                if (det_v_lower == "hevc" || det_v_lower == "h265") {
+                    target_format = "hevc";
+                } else if (det_v_lower == "mpeg2" || det_v_lower == "mpeg2video") {
+                    target_format = "mpeg2video";
+                } else {
+                    target_format = "h264";
                 }
-                LOG_ERROR("Canal [" + name_ + "]: " + error_message_);
-                cleanup();
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                current_video_filename = video_filename_;
-                continue;
+            }
+
+            std::string codec = "libx264";
+            if (IsNvidiaGPUPresent()) {
+                codec = "h264_nvenc";
+                if (target_format == "hevc") codec = "hevc_nvenc";
+                else if (target_format == "mpeg2video") codec = "mpeg2video";
+            } else {
+                if (target_format == "hevc") codec = "libx265";
+                else if (target_format == "mpeg2video") codec = "mpeg2video";
+            }
+            
+            ffmpeg_cmd += "-c:v " + codec + " ";
+            if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
+                ffmpeg_cmd += "-preset p1 -tune ll -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+            } else if (codec == "libx264" || codec == "libx265") {
+                ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
+            }
+            
+            if (!current_msg.empty()) {
+                std::string escaped_msg = "";
+                for (char c : current_msg) {
+                    if (c == '\'') {
+                        escaped_msg += "'\\''";
+                    } else if (c == ',') {
+                        escaped_msg += "\\\\,";
+                    } else if (c == ':') {
+                        escaped_msg += "\\\\:";
+                    } else if (c == '\\') {
+                        escaped_msg += "\\\\\\\\";
+                    } else {
+                        escaped_msg += c;
+                    }
+                }
+                ffmpeg_cmd += "-vf \"drawtext=fontfile=/usr/share/fonts/truetype/freefont/FreeSans.ttf:text='" + escaped_msg + "':expansion=none:x=(w-text_w)/2:y=h-50:fontsize=32:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=10\" ";
+            }
+            
+            if (current_limit_bitrate > 0) {
+                int v_bitrate = std::max(200, current_limit_bitrate - 128);
+                ffmpeg_cmd += "-b:v " + std::to_string(v_bitrate) + "k -maxrate " + std::to_string(v_bitrate) + "k -bufsize " + std::to_string(2 * v_bitrate) + "k ";
+            }
+        } else {
+            ffmpeg_cmd += "-c:v copy ";
+        }
+        
+        if (current_transcode_audio) {
+            std::string codec = "aac";
+            if (audio_output_format_ == "mp3") codec = "libmp3lame";
+            else if (audio_output_format_ == "ac3") codec = "ac3";
+            
+            ffmpeg_cmd += "-c:a " + codec + " -b:a 128k ";
+        } else {
+            ffmpeg_cmd += "-c:a copy ";
+        }
+        
+        std::string outputs_str = "";
+        for (const auto& dest : outputs_) {
+            std::string r_url = dest.url;
+            std::string o_iface = dest.output_interface;
+            if (!o_iface.empty()) {
+                std::string iface_ip = GetInterfaceIP(o_iface);
+                if (!iface_ip.empty()) {
+                    if (r_url.rfind("udp://", 0) == 0 || r_url.rfind("srt://", 0) == 0 || r_url.rfind("rtp://", 0) == 0) {
+                        if (r_url.find("localaddr=") == std::string::npos) {
+                            if (r_url.find('?') == std::string::npos) {
+                                r_url += "?localaddr=" + iface_ip;
+                            } else {
+                                r_url += "&localaddr=" + iface_ip;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (dest.type == "hls" || r_url.rfind("hls://", 0) == 0 || r_url.find(".m3u8") != std::string::npos) {
+                try {
+                    std::filesystem::path p(r_url);
+                    std::filesystem::create_directories(p.parent_path());
+                } catch (...) {}
+                outputs_str += " -f hls -hls_time 2 -hls_list_size 5 -hls_flags delete_segments \"" + r_url + "\"";
+            } else if (dest.type == "rtp" || r_url.rfind("rtp://", 0) == 0) {
+                outputs_str += " -f rtp_mpegts \"" + r_url + "\"";
+            } else {
+                std::string optimized_url = r_url;
+                if (optimized_url.rfind("udp://", 0) == 0) {
+                    if (optimized_url.find("pkt_size=") == std::string::npos) {
+                        if (optimized_url.find('?') == std::string::npos) {
+                            optimized_url += "?pkt_size=1316";
+                        } else {
+                            optimized_url += "&pkt_size=1316";
+                        }
+                    }
+                }
+                outputs_str += " -f mpegts \"" + optimized_url + "\"";
             }
         }
-
-        int header_ret = avformat_write_header(out_fmt_ctx, nullptr);
-        if (header_ret < 0) {
-            char err_buf[256];
-            av_strerror(header_ret, err_buf, sizeof(err_buf));
+        ffmpeg_cmd += outputs_str;
+        
+        LOG_INFO("Canal [" + name_ + "]: Iniciando comando de FFmpeg nativo para VideoPack: " + ffmpeg_cmd);
+        
+        ffmpeg_pipe_ = popen(ffmpeg_cmd.c_str(), "w");
+        if (!ffmpeg_pipe_) {
             {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                error_message_ = "Error escribiendo cabecera: " + std::string(err_buf);
+                std::lock_guard<std::mutex> stat_lock(stats_mutex_);
+                error_message_ = "Error al abrir pipe de FFmpeg.";
             }
             LOG_ERROR("Canal [" + name_ + "]: " + error_message_);
             cleanup();
@@ -623,243 +494,48 @@ void OutputStream::OutputLoopVideoPack() {
             continue;
         }
 
-        initialized = true;
         {
             std::lock_guard<std::mutex> stat_lock(stats_mutex_);
             error_message_ = "";
         }
-        LOG_INFO("Transmisión de salida inicializada (VideoPack) para canal [" + name_ + "]");
+        LOG_INFO("Transmisión de salida inicializada (VideoPack nativo) para canal [" + name_ + "]");
 
-        std::map<int, int64_t> stream_dts_offsets;
-        std::map<int, int64_t> stream_start_dts;
-        double cumulative_offset_secs = 0.0;
-        double first_pts_secs = -1.0;
-        auto loop_start_time = std::chrono::steady_clock::now();
+        int loop_counter = 0;
+        bool ffmpeg_running = true;
+        while (running_ && ffmpeg_running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            
+            // Simular estadísticas basadas en la tasa de bits estimada
+            int64_t bytes_to_add = (expected_bitrate_bps * 0.1) / 8.0;
+            bytes_accumulator_ += bytes_to_add;
+            packets_sent_ += bytes_to_add / 1316;
 
-        int master_stream_idx = -1;
-        for (unsigned int i = 0; i < in_fmt_ctx->nb_streams; i++) {
-            if (in_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-                master_stream_idx = i;
-                break;
-            }
-        }
-        if (master_stream_idx == -1) {
-            for (unsigned int i = 0; i < in_fmt_ctx->nb_streams; i++) {
-                if (in_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-                    master_stream_idx = i;
-                    break;
-                }
-            }
-        }
-
-        AVPacket* pkt = av_packet_alloc();
-        bool file_loop_ok = true;
-        auto last_change_check = std::chrono::steady_clock::now();
-
-        while (running_ && file_loop_ok) {
-            int read_ret = av_read_frame(in_fmt_ctx, pkt);
-            if (read_ret < 0) {
-                if (read_ret == AVERROR_EOF) {
-                    ret = av_seek_frame(in_fmt_ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
-                    if (ret < 0) {
-                        ret = avformat_seek_file(in_fmt_ctx, -1, INT64_MIN, 0, INT64_MAX, 0);
-                    }
-                    if (ret >= 0) {
-                        double max_last_secs = 0.0;
-                        for (auto const& pair : stream_mapping) {
-                            int out_idx = pair.second;
-                            auto it = last_written_dts.find(out_idx);
-                            if (it != last_written_dts.end() && it->second != AV_NOPTS_VALUE) {
-                                double secs = it->second * av_q2d(out_fmt_ctx->streams[out_idx]->time_base);
-                                if (secs > max_last_secs) {
-                                    max_last_secs = secs;
-                                }
-                            }
-                        }
-
-                        double min_start_secs = 0.0;
-                        bool has_start = false;
-                        for (auto const& pair : stream_mapping) {
-                            int in_idx = pair.first;
-                            auto it = stream_start_dts.find(in_idx);
-                            if (it != stream_start_dts.end() && it->second != AV_NOPTS_VALUE) {
-                                double secs = it->second * av_q2d(in_fmt_ctx->streams[in_idx]->time_base);
-                                if (!has_start || secs < min_start_secs) {
-                                    min_start_secs = secs;
-                                    has_start = true;
-                                }
-                            }
-                        }
-
-                        double loop_duration = max_last_secs - min_start_secs;
-                        if (loop_duration < 0.1) {
-                            if (in_fmt_ctx->duration != AV_NOPTS_VALUE) {
-                                loop_duration = in_fmt_ctx->duration / (double)AV_TIME_BASE;
-                            } else {
-                                loop_duration = 10.0;
-                            }
-                        }
-                        
-                        // Add a tiny gap (20ms) to ensure continuity
-                        loop_duration += 0.02;
-                        cumulative_offset_secs += loop_duration;
-
-                        for (auto const& pair : stream_mapping) {
-                            int in_idx = pair.first;
-                            int64_t start_ts = 0;
-                            auto start_it = stream_start_dts.find(in_idx);
-                            if (start_it != stream_start_dts.end() && start_it->second != AV_NOPTS_VALUE) {
-                                start_ts = start_it->second;
-                            }
-                            
-                            double start_secs = start_ts * av_q2d(in_fmt_ctx->streams[in_idx]->time_base);
-                            double target_secs = cumulative_offset_secs;
-                            
-                            stream_dts_offsets[in_idx] = (target_secs - start_secs) / av_q2d(in_fmt_ctx->streams[in_idx]->time_base);
-                        }
-
-                        loop_start_time = std::chrono::steady_clock::now();
-                        first_pts_secs = -1.0;
-                        LOG_INFO("Canal [" + name_ + "]: VideoPack archivo finalizado. Reiniciando bucle.");
-                        continue;
-                    }
-                }
-                char err_buf[256];
-                av_strerror(read_ret, err_buf, sizeof(err_buf));
-                LOG_WARN("Error de lectura en archivo [" + name_ + "]: " + std::string(err_buf));
-                file_loop_ok = false;
-                break;
-            }
-
-            int idx = pkt->stream_index;
-            int64_t duration = pkt->duration;
-            if (duration <= 0) duration = 0;
-
-            if (stream_start_dts.find(idx) == stream_start_dts.end()) {
-                int64_t ts = pkt->dts;
-                if (ts == AV_NOPTS_VALUE) ts = pkt->pts;
-                if (ts != AV_NOPTS_VALUE) stream_start_dts[idx] = ts;
-            }
-
-            if (stream_dts_offsets.find(idx) != stream_dts_offsets.end()) {
-                if (pkt->dts != AV_NOPTS_VALUE) pkt->dts += stream_dts_offsets[idx];
-                if (pkt->pts != AV_NOPTS_VALUE) pkt->pts += stream_dts_offsets[idx];
-            }
-
-            if (idx == master_stream_idx) {
-                int64_t ts = pkt->dts;
-                if (ts == AV_NOPTS_VALUE) ts = pkt->pts;
-                if (ts != AV_NOPTS_VALUE) {
-                    double pkt_pts_secs = ts * av_q2d(in_fmt_ctx->streams[idx]->time_base);
-                    if (first_pts_secs < 0) first_pts_secs = pkt_pts_secs;
-                    double relative_pkt_time = pkt_pts_secs - first_pts_secs;
-                    auto now = std::chrono::steady_clock::now();
-                    double elapsed_wall_clock = std::chrono::duration_cast<std::chrono::microseconds>(now - loop_start_time).count() / 1000000.0;
-                    if (relative_pkt_time > elapsed_wall_clock) {
-                        double sleep_sec = relative_pkt_time - elapsed_wall_clock;
-                        if (sleep_sec > 1.0) sleep_sec = 1.0;
-                        std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int64_t>(sleep_sec * 1000000.0)));
-                    } else if (elapsed_wall_clock - relative_pkt_time > 0.5) {
-                        loop_start_time = now - std::chrono::microseconds(static_cast<int64_t>(relative_pkt_time * 1000000.0));
-                    }
-                }
-            }
-
-            auto it = stream_mapping.find(idx);
-            if (it != stream_mapping.end()) {
-                int out_stream_idx = it->second;
-                AVStream* out_stream = out_fmt_ctx->streams[out_stream_idx];
-                AVStream* in_stream = in_fmt_ctx->streams[idx];
-
-                AVBSFContext* bsf_ctx = nullptr;
-                auto bsf_it = bsf_contexts.find(out_stream_idx);
-                if (bsf_it != bsf_contexts.end()) {
-                    bsf_ctx = bsf_it->second;
-                }
-
-                if (bsf_ctx) {
-                    int bsf_ret = av_bsf_send_packet(bsf_ctx, pkt);
-                    while (bsf_ret >= 0) {
-                        AVPacket* filtered_pkt = av_packet_alloc();
-                        int bsf_recv = av_bsf_receive_packet(bsf_ctx, filtered_pkt);
-                        if (bsf_recv < 0) {
-                            av_packet_free(&filtered_pkt);
-                            break;
-                        }
-                        av_packet_rescale_ts(filtered_pkt, in_stream->time_base, out_stream->time_base);
-                        filtered_pkt->stream_index = out_stream_idx;
-
-                        if (filtered_pkt->dts != AV_NOPTS_VALUE) {
-                            auto last_dts_it = last_written_dts.find(out_stream_idx);
-                            if (last_dts_it != last_written_dts.end()) {
-                                int64_t last_dts = last_dts_it->second;
-                                if (last_dts != AV_NOPTS_VALUE && filtered_pkt->dts <= last_dts) {
-                                    filtered_pkt->dts = last_dts + 1;
-                                    if (filtered_pkt->pts != AV_NOPTS_VALUE && filtered_pkt->pts < filtered_pkt->dts) {
-                                        filtered_pkt->pts = filtered_pkt->dts;
-                                    }
-                                }
-                            }
-                            last_written_dts[out_stream_idx] = filtered_pkt->dts;
-                        }
-
-                        int pkt_size = filtered_pkt->size;
-                        int write_ret = av_write_frame(out_fmt_ctx, filtered_pkt);
-                        av_packet_free(&filtered_pkt);
-
-                        if (write_ret < 0) {
-                            file_loop_ok = false;
-                            break;
-                        } else {
-                            packets_sent_++;
-                            bytes_accumulator_ += pkt_size;
-                        }
-                    }
-                } else {
-                    av_packet_rescale_ts(pkt, in_stream->time_base, out_stream->time_base);
-                    pkt->stream_index = out_stream_idx;
-
-                    if (pkt->dts != AV_NOPTS_VALUE) {
-                        auto last_dts_it = last_written_dts.find(out_stream_idx);
-                        if (last_dts_it != last_written_dts.end()) {
-                            int64_t last_dts = last_dts_it->second;
-                            if (last_dts != AV_NOPTS_VALUE && pkt->dts <= last_dts) {
-                                pkt->dts = last_dts + 1;
-                                if (pkt->pts != AV_NOPTS_VALUE && pkt->pts < pkt->dts) {
-                                    pkt->pts = pkt->dts;
-                                }
-                            }
-                        }
-                        last_written_dts[out_stream_idx] = pkt->dts;
-                    }
-
-                    int pkt_size = pkt->size;
-                    int write_ret = av_write_frame(out_fmt_ctx, pkt);
-                    if (write_ret < 0) {
-                        file_loop_ok = false;
-                    } else {
-                        packets_sent_++;
-                        bytes_accumulator_ += pkt_size;
-                    }
-                }
-            }
-
-            av_packet_unref(pkt);
-
-            auto now = std::chrono::steady_clock::now();
-            if (now - last_change_check >= std::chrono::seconds(1)) {
-                last_change_check = now;
+            loop_counter++;
+            if (loop_counter >= 10) { // Cada 1 segundo
+                loop_counter = 0;
+                
+                // Comprobar si ha cambiado la configuración
                 std::string latest_msg = StreamerEngine::GetInstance().GetActiveMessageForStream(id_);
                 if (latest_msg != current_msg || video_filename_ != current_video_filename ||
                     transcode_enabled_ != current_transcode_enabled || transcode_video_ != current_transcode_video ||
                     transcode_audio_ != current_transcode_audio || limit_bitrate_ != current_limit_bitrate) {
                     LOG_INFO("Canal [" + name_ + "]: Configuración, archivo o mensaje de texto de salida modificados. Reiniciando stream.");
-                    file_loop_ok = false;
+                    ffmpeg_running = false;
+                    break;
+                }
+
+                // Comprobar si FFmpeg sigue vivo escribiendo un salto de línea en su stdin
+                if (ffmpeg_pipe_) {
+                    if (fwrite("\n", 1, 1, ffmpeg_pipe_) != 1 || fflush(ffmpeg_pipe_) != 0) {
+                        LOG_WARN("Canal [" + name_ + "]: El proceso FFmpeg terminó inesperadamente.");
+                        ffmpeg_running = false;
+                        break;
+                    }
                 }
             }
         }
 
-        av_packet_free(&pkt);
+        // Limpiar para la siguiente iteración (o finalización)
         cleanup();
 
         current_video_filename = video_filename_;

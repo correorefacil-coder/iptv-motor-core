@@ -632,6 +632,7 @@ void OutputStream::OutputLoopVideoPack() {
 
         std::map<int, int64_t> stream_dts_offsets;
         std::map<int, int64_t> stream_start_dts;
+        double cumulative_offset_secs = 0.0;
         double first_pts_secs = -1.0;
         auto loop_start_time = std::chrono::steady_clock::now();
 
@@ -664,23 +665,59 @@ void OutputStream::OutputLoopVideoPack() {
                         ret = avformat_seek_file(in_fmt_ctx, -1, INT64_MIN, 0, INT64_MAX, 0);
                     }
                     if (ret >= 0) {
+                        double max_last_secs = 0.0;
                         for (auto const& pair : stream_mapping) {
-                            int in_idx = pair.first;
                             int out_idx = pair.second;
-                            int64_t last_dts = AV_NOPTS_VALUE;
-                            auto last_dts_it = last_written_dts.find(out_idx);
-                            if (last_dts_it != last_written_dts.end()) {
-                                last_dts = last_dts_it->second;
-                            }
-                            if (last_dts != AV_NOPTS_VALUE) {
-                                int64_t start_ts = 0;
-                                auto start_ts_it = stream_start_dts.find(in_idx);
-                                if (start_ts_it != stream_start_dts.end()) {
-                                    start_ts = start_ts_it->second;
+                            auto it = last_written_dts.find(out_idx);
+                            if (it != last_written_dts.end() && it->second != AV_NOPTS_VALUE) {
+                                double secs = it->second * av_q2d(out_fmt_ctx->streams[out_idx]->time_base);
+                                if (secs > max_last_secs) {
+                                    max_last_secs = secs;
                                 }
-                                stream_dts_offsets[in_idx] = last_dts + 1 - start_ts;
                             }
                         }
+
+                        double min_start_secs = 0.0;
+                        bool has_start = false;
+                        for (auto const& pair : stream_mapping) {
+                            int in_idx = pair.first;
+                            auto it = stream_start_dts.find(in_idx);
+                            if (it != stream_start_dts.end() && it->second != AV_NOPTS_VALUE) {
+                                double secs = it->second * av_q2d(in_fmt_ctx->streams[in_idx]->time_base);
+                                if (!has_start || secs < min_start_secs) {
+                                    min_start_secs = secs;
+                                    has_start = true;
+                                }
+                            }
+                        }
+
+                        double loop_duration = max_last_secs - min_start_secs;
+                        if (loop_duration < 0.1) {
+                            if (in_fmt_ctx->duration != AV_NOPTS_VALUE) {
+                                loop_duration = in_fmt_ctx->duration / (double)AV_TIME_BASE;
+                            } else {
+                                loop_duration = 10.0;
+                            }
+                        }
+                        
+                        // Add a tiny gap (20ms) to ensure continuity
+                        loop_duration += 0.02;
+                        cumulative_offset_secs += loop_duration;
+
+                        for (auto const& pair : stream_mapping) {
+                            int in_idx = pair.first;
+                            int64_t start_ts = 0;
+                            auto start_it = stream_start_dts.find(in_idx);
+                            if (start_it != stream_start_dts.end() && start_it->second != AV_NOPTS_VALUE) {
+                                start_ts = start_it->second;
+                            }
+                            
+                            double start_secs = start_ts * av_q2d(in_fmt_ctx->streams[in_idx]->time_base);
+                            double target_secs = cumulative_offset_secs;
+                            
+                            stream_dts_offsets[in_idx] = (target_secs - start_secs) / av_q2d(in_fmt_ctx->streams[in_idx]->time_base);
+                        }
+
                         loop_start_time = std::chrono::steady_clock::now();
                         first_pts_secs = -1.0;
                         LOG_INFO("Canal [" + name_ + "]: VideoPack archivo finalizado. Reiniciando bucle.");

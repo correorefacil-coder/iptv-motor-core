@@ -612,19 +612,40 @@ formInput.addEventListener('submit', async (e) => {
 
 function applyProgrammerStreamModalRestrictions() {
     const isProgrammer = currentUser && currentUser.role === 'Programadores';
+    
+    // 1. Disable Channel Name, Input Pack, and Program number (they can only view them)
     document.getElementById('stream-name').disabled = isProgrammer;
     document.getElementById('stream-input-id').disabled = isProgrammer;
+    document.getElementById('stream-program').disabled = isProgrammer;
     
+    const btnRefreshPrograms = document.getElementById('btn-refresh-programs');
+    if (btnRefreshPrograms) btnRefreshPrograms.disabled = isProgrammer;
+
+    // 2. Hide/Show Outputs and Transcoding sections completely
+    const outputsGroup = document.getElementById('stream-outputs-group');
+    if (outputsGroup) {
+        outputsGroup.style.display = isProgrammer ? 'none' : 'block';
+    }
+    const transcodeGroup = document.getElementById('stream-transcode-group');
+    if (transcodeGroup) {
+        transcodeGroup.style.display = isProgrammer ? 'none' : 'block';
+    }
+    const transcodeOptionsContainer = document.getElementById('transcode-options-container');
+    if (transcodeOptionsContainer) {
+        if (isProgrammer) {
+            transcodeOptionsContainer.style.display = 'none';
+        }
+    }
+
+    // Still keep fallback fields disabled just in case
     const btnAddOutput = document.getElementById('btn-add-output');
     if (btnAddOutput) btnAddOutput.disabled = isProgrammer;
-
     const container = document.getElementById('stream-outputs-container');
     if (container) {
         container.querySelectorAll('input, select, button').forEach(el => {
             el.disabled = isProgrammer;
         });
     }
-    
     document.getElementById('stream-transcode-enabled').disabled = isProgrammer;
     document.getElementById('stream-transcode-video').disabled = isProgrammer;
     document.getElementById('stream-video-output').disabled = isProgrammer;

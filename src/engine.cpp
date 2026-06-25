@@ -390,15 +390,7 @@ void OutputStream::OutputLoopVideoPack() {
 
         bool force_transcode = !current_msg.empty();
         
-        bool force_ffmpeg = false;
-        if (outputs_.size() > 1) {
-            force_ffmpeg = true;
-        } else if (!outputs_.empty()) {
-            std::string t = outputs_[0].type;
-            if (t == "hls" || t == "rtp") {
-                force_ffmpeg = true;
-            }
-        }
+        bool force_ffmpeg = !outputs_.empty();
         bool use_transcoding = current_transcode_enabled || force_transcode || force_ffmpeg;
 
         if (use_transcoding) {
@@ -506,7 +498,17 @@ void OutputStream::OutputLoopVideoPack() {
                 } else if (dest.type == "rtp" || r_url.rfind("rtp://", 0) == 0) {
                     outputs_str += " -f rtp_mpegts \"" + r_url + "\"";
                 } else {
-                    outputs_str += " -f mpegts \"" + r_url + "\"";
+                    std::string optimized_url = r_url;
+                    if (optimized_url.rfind("udp://", 0) == 0) {
+                        if (optimized_url.find("pkt_size=") == std::string::npos) {
+                            if (optimized_url.find('?') == std::string::npos) {
+                                optimized_url += "?pkt_size=1316";
+                            } else {
+                                optimized_url += "&pkt_size=1316";
+                            }
+                        }
+                    }
+                    outputs_str += " -f mpegts -mpegts_flags +initial_discontinuity+minimal_meta -pat_period 1 -sdt_period 1 -nit_period 1 \"" + optimized_url + "\"";
                 }
             }
             ffmpeg_cmd += outputs_str;
@@ -937,15 +939,7 @@ void OutputStream::OutputLoop() {
                 initialized_message_ = active_msg;
                 bool force_transcode = !active_msg.empty();
                 
-                bool force_ffmpeg = false;
-                if (outputs_.size() > 1) {
-                    force_ffmpeg = true;
-                } else if (!outputs_.empty()) {
-                    std::string t = outputs_[0].type;
-                    if (t == "hls" || t == "rtp") {
-                        force_ffmpeg = true;
-                    }
-                }
+                bool force_ffmpeg = !outputs_.empty();
                 bool use_transcoding = transcode_enabled_ || force_transcode || force_ffmpeg;
 
                 if (use_transcoding) {
@@ -1056,7 +1050,17 @@ void OutputStream::OutputLoop() {
                         } else if (dest.type == "rtp" || r_url.rfind("rtp://", 0) == 0) {
                             outputs_str += " -f rtp_mpegts \"" + r_url + "\"";
                         } else {
-                            outputs_str += " -f mpegts \"" + r_url + "\"";
+                            std::string optimized_url = r_url;
+                            if (optimized_url.rfind("udp://", 0) == 0) {
+                                if (optimized_url.find("pkt_size=") == std::string::npos) {
+                                    if (optimized_url.find('?') == std::string::npos) {
+                                        optimized_url += "?pkt_size=1316";
+                                    } else {
+                                        optimized_url += "&pkt_size=1316";
+                                    }
+                                }
+                            }
+                            outputs_str += " -f mpegts -mpegts_flags +initial_discontinuity+minimal_meta -pat_period 1 -sdt_period 1 -nit_period 1 \"" + optimized_url + "\"";
                         }
                     }
                     ffmpeg_cmd += outputs_str;

@@ -179,6 +179,15 @@
                         <option value="">Selecciona un video...</option>
                     </select>
                     <small class="form-help">Selecciona el archivo de video que deseas reproducir en este canal.</small>
+                    
+                    <div style="margin-top: 12px; padding: 12px; border: 1px dashed var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.02);">
+                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">Subir nuevo video a este Pack:</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="file" id="stream-video-upload-input" accept=".mp4,.mkv,.ts,.avi,.mov,.flv,.mpeg,.mpg,.webm,.m4v" style="font-size: 11px; flex: 1; color: var(--text-secondary); background: transparent; border: none; padding: 0;">
+                            <button type="button" id="btn-stream-video-upload" class="btn btn-secondary btn-small">Subir</button>
+                        </div>
+                        <div id="stream-video-upload-status" style="font-size: 11px; margin-top: 6px; color: var(--text-muted);"></div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label style="display: flex; justify-content: space-between; align-items: center;">

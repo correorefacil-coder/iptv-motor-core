@@ -508,7 +508,7 @@ void OutputStream::OutputLoopVideoPack() {
                             }
                         }
                     }
-                    outputs_str += " -f mpegts -mpegts_flags +initial_discontinuity+minimal_meta -pat_period 1 -sdt_period 1 -nit_period 1 \"" + optimized_url + "\"";
+                    outputs_str += " -f mpegts \"" + optimized_url + "\"";
                 }
             }
             ffmpeg_cmd += outputs_str;
@@ -664,12 +664,22 @@ void OutputStream::OutputLoopVideoPack() {
                         ret = avformat_seek_file(in_fmt_ctx, -1, INT64_MIN, 0, INT64_MAX, 0);
                     }
                     if (ret >= 0) {
-                        for (auto const& [idx, last_dts] : last_written_dts) {
-                            int64_t start_ts = 0;
-                            if (stream_start_dts.find(idx) != stream_start_dts.end()) {
-                                start_ts = stream_start_dts[idx];
+                        for (auto const& pair : stream_mapping) {
+                            int in_idx = pair.first;
+                            int out_idx = pair.second;
+                            int64_t last_dts = AV_NOPTS_VALUE;
+                            auto last_dts_it = last_written_dts.find(out_idx);
+                            if (last_dts_it != last_written_dts.end()) {
+                                last_dts = last_dts_it->second;
                             }
-                            stream_dts_offsets[idx] = last_dts + 1 - start_ts;
+                            if (last_dts != AV_NOPTS_VALUE) {
+                                int64_t start_ts = 0;
+                                auto start_ts_it = stream_start_dts.find(in_idx);
+                                if (start_ts_it != stream_start_dts.end()) {
+                                    start_ts = start_ts_it->second;
+                                }
+                                stream_dts_offsets[in_idx] = last_dts + 1 - start_ts;
+                            }
                         }
                         loop_start_time = std::chrono::steady_clock::now();
                         first_pts_secs = -1.0;
@@ -1060,7 +1070,7 @@ void OutputStream::OutputLoop() {
                                     }
                                 }
                             }
-                            outputs_str += " -f mpegts -mpegts_flags +initial_discontinuity+minimal_meta -pat_period 1 -sdt_period 1 -nit_period 1 \"" + optimized_url + "\"";
+                            outputs_str += " -f mpegts \"" + optimized_url + "\"";
                         }
                     }
                     ffmpeg_cmd += outputs_str;

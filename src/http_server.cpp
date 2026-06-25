@@ -1349,6 +1349,36 @@ void HTTPServer::ServerLoop() {
             target_dir = fs::path(path_param);
         }
 
+        // Security restriction: Only allow uploads to directories defined as a video pack input source url
+        std::string role = UserManager::GetInstance().GetRole(user);
+        bool is_valid_video_pack_dir = false;
+        json inputs_list = StreamerEngine::GetInstance().GetInputsJSON();
+        for (const auto& item : inputs_list) {
+            std::string input_url = item.value("url", "");
+            bool is_video_pack = item.value("is_video_pack", false);
+            std::string input_id = item.value("id", "");
+            
+            if (is_video_pack) {
+                if (role != "Programadores" || IsInputAllowed(user, input_id)) {
+                    std::error_code equiv_ec;
+                    if (fs::equivalent(fs::path(input_url), target_dir, equiv_ec)) {
+                        is_valid_video_pack_dir = true;
+                        break;
+                    }
+                    if (equiv_ec && input_url == target_dir.string()) {
+                        is_valid_video_pack_dir = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!is_valid_video_pack_dir) {
+            res.status = 403;
+            res.set_content("{\"success\":false,\"error\":\"Acceso denegado: Solo se permite subir archivos a las carpetas de video packs autorizadas por el administrador.\"}", "application/json");
+            return;
+        }
+
         std::error_code ec;
         if (!fs::exists(target_dir, ec)) {
             fs::create_directories(target_dir, ec);

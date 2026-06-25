@@ -418,6 +418,88 @@ document.getElementById('btn-refresh-programs').addEventListener('click', async 
     probeInput(inputSource.url, inputSource.id);
 });
 
+// Handle video upload inside stream modal
+document.getElementById('btn-stream-video-upload').addEventListener('click', async () => {
+    const fileInput = document.getElementById('stream-video-upload-input');
+    const statusDiv = document.getElementById('stream-video-upload-status');
+    const inputId = document.getElementById('stream-input-id').value;
+
+    if (!inputId) {
+        alert('Por favor selecciona un Pack de entrada primero.');
+        return;
+    }
+
+    const inputSource = inputs.find(i => i.id === inputId);
+    if (!inputSource || !inputSource.is_video_pack) {
+        alert('El pack de entrada seleccionado no es un paquete de videos.');
+        return;
+    }
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Por favor selecciona un archivo para subir.');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    statusDiv.textContent = 'Subiendo archivo... 0%';
+    statusDiv.style.color = 'var(--text-muted)';
+
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/fs/upload?path=${encodeURIComponent(inputSource.url)}`, true);
+
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                statusDiv.textContent = `Subiendo archivo... ${percentComplete}%`;
+            }
+        };
+
+        xhr.onload = async () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                const response = JSON.parse(xhr.responseText);
+                if (response.success) {
+                    statusDiv.textContent = '¡Archivo subido con éxito! Actualizando lista...';
+                    statusDiv.style.color = 'var(--green-success)';
+                    fileInput.value = '';
+
+                    // Refresh inputs to scan the folder again and update the programs list
+                    await fetchInputs();
+                    
+                    // Repopulate the dropdown and select the newly uploaded file
+                    populateProgramsFromSelectedInput(inputId, null, file.name);
+                    
+                    statusDiv.textContent = '¡Video subido y seleccionado correctamente!';
+                } else {
+                    statusDiv.textContent = `Error: ${response.error || 'Fallo desconocido'}`;
+                    statusDiv.style.color = 'var(--red-alert)';
+                }
+            } else {
+                let errorMsg = 'Error en el servidor';
+                try {
+                    const errorResponse = JSON.parse(xhr.responseText);
+                    errorMsg = errorResponse.error || errorMsg;
+                } catch (e) {}
+                statusDiv.textContent = `Error: ${errorMsg}`;
+                statusDiv.style.color = 'var(--red-alert)';
+            }
+        };
+
+        xhr.onerror = () => {
+            statusDiv.textContent = 'Error de conexión de red.';
+            statusDiv.style.color = 'var(--red-alert)';
+        };
+
+        xhr.send(formData);
+    } catch (error) {
+        statusDiv.textContent = `Error: ${error.message}`;
+        statusDiv.style.color = 'var(--red-alert)';
+    }
+});
+
 // --- TOGGLES & TRIGGERS ---
 async function toggleStream(id, enable) {
     const stream = streams.find(s => s.id === id);

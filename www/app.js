@@ -49,6 +49,7 @@ const btnBrowseFiles = document.getElementById('btn-browse-files');
 const fsCurrentPath = document.getElementById('fs-current-path');
 const fsListContainer = document.getElementById('fs-list-container');
 const btnSelectFile = document.getElementById('btn-select-file');
+const btnSelectFolder = document.getElementById('btn-select-folder');
 
 // --- Helper: format bitrate ---
 function formatBitrate(kbps) {
@@ -1621,6 +1622,9 @@ function formatBytes(bytes) {
 async function loadDirectory(path) {
     fsListContainer.innerHTML = '<div style="padding: 12px; color: var(--text-muted); text-align: center;">Cargando...</div>';
     btnSelectFile.disabled = true;
+    if (btnSelectFolder) {
+        btnSelectFolder.textContent = 'Seleccionar Carpeta Actual';
+    }
     fsSelectedFilePath = '';
     
     let url = '/api/fs/list';
@@ -1644,6 +1648,7 @@ async function loadDirectory(path) {
             div.className = `fs-item ${item.is_directory ? 'directory' : 'file'}`;
             div.dataset.path = item.path;
             div.dataset.isdir = item.is_directory;
+            div.dataset.name = item.name;
             
             const icon = item.is_directory ? '📁' : '🎥';
             const sizeText = item.is_directory ? '' : formatBytes(item.size);
@@ -1663,6 +1668,9 @@ async function loadDirectory(path) {
                     div.classList.add('selected');
                     btnSelectFile.disabled = true;
                     fsSelectedFilePath = '';
+                    if (btnSelectFolder) {
+                        btnSelectFolder.textContent = `Seleccionar Carpeta: ${item.name}`;
+                    }
                 });
             } else {
                 div.addEventListener('click', () => {
@@ -1670,6 +1678,9 @@ async function loadDirectory(path) {
                     div.classList.add('selected');
                     fsSelectedFilePath = item.path;
                     btnSelectFile.disabled = false;
+                    if (btnSelectFolder) {
+                        btnSelectFolder.textContent = 'Seleccionar Carpeta Actual';
+                    }
                 });
                 
                 div.addEventListener('dblclick', () => {
@@ -1692,6 +1703,21 @@ function selectAndCloseFile() {
     }
 }
 
+function selectAndCloseFolder() {
+    let selectedPath = fsCurrentPathVal;
+    
+    // Check if a directory item is selected in the list
+    const selectedItem = fsListContainer.querySelector('.fs-item.selected.directory');
+    if (selectedItem) {
+        selectedPath = selectedItem.dataset.path;
+    }
+    
+    if (selectedPath) {
+        document.getElementById('input-url').value = selectedPath;
+        modalFs.style.display = 'none';
+    }
+}
+
 btnBrowseFiles.addEventListener('click', () => {
     modalFs.style.display = 'block';
     loadDirectory(fsCurrentPathVal || '');
@@ -1700,6 +1726,12 @@ btnBrowseFiles.addEventListener('click', () => {
 btnSelectFile.addEventListener('click', () => {
     selectAndCloseFile();
 });
+
+if (btnSelectFolder) {
+    btnSelectFolder.addEventListener('click', () => {
+        selectAndCloseFolder();
+    });
+}
 
 // File upload handlers inside the File Explorer modal
 const btnUploadFile = document.getElementById('btn-upload-file');

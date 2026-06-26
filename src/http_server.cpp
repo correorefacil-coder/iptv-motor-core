@@ -531,6 +531,11 @@ void HTTPServer::ServerLoop() {
             return httplib::Server::HandlerResponse::Unhandled;
         }
 
+        // Permitir acceso público y sin autenticación a los flujos HLS para reproductores externos como VLC
+        if (req.path.rfind("/hls/", 0) == 0) {
+            return httplib::Server::HandlerResponse::Unhandled;
+        }
+
         std::string user = GetSessionUser(req);
         if (!user.empty() && UserManager::GetInstance().UserExists(user)) {
             if (!req.get_param_value("session").empty()) {

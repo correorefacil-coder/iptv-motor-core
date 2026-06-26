@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 using json = nlohmann::json;
 
@@ -507,6 +508,9 @@ void HTTPServer::ServerLoop() {
     SystemStats sys_stats;
     UserManager::GetInstance().Init();
     UserLogger::GetInstance().Init();
+
+    // Permitir subir archivos de cualquier tamaño sin límites (ej. videos de gran tamaño)
+    svr_.set_payload_max_length((std::numeric_limits<size_t>::max)());
 
     if (!svr_.set_mount_point("/", www_dir_)) {
         LOG_WARN("No se pudo montar la carpeta web: " + www_dir_ + ". Solo funcionará la API REST.");

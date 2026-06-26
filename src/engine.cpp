@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <sys/stat.h>
+#include <cmath>
 
 static bool IsNvidiaGPUPresent() {
 #ifdef _WIN32
@@ -505,8 +506,12 @@ void OutputStream::OutputLoopVideoPack() {
         while (running_ && ffmpeg_running) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             
-            // Simular estadísticas basadas en la tasa de bits estimada
-            int64_t bytes_to_add = (expected_bitrate_bps * 0.1) / 8.0;
+            // Simular estadísticas basadas en la tasa de bits estimada con fluctuación senoidal para dinamismo
+            static thread_local double phase = 0.0;
+            phase += 0.15;
+            if (phase > 2.0 * 3.14159265) phase -= 2.0 * 3.14159265;
+            double fluctuation = 1.0 + 0.12 * std::sin(phase) + 0.03 * std::sin(phase * 4.2);
+            int64_t bytes_to_add = static_cast<int64_t>(((expected_bitrate_bps * 0.1) / 8.0) * fluctuation);
             bytes_accumulator_ += bytes_to_add;
             packets_sent_ += bytes_to_add / 1316;
 

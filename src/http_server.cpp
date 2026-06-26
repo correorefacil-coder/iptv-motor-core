@@ -513,8 +513,8 @@ void HTTPServer::ServerLoop() {
     svr_.set_payload_max_length((std::numeric_limits<size_t>::max)());
 
     // Mapeos de tipos MIME correctos para HLS (m3u8 y ts) para que reproductores como VLC los reproduzcan de forma nativa en lugar de descargarlos
-    svr_.set_file_extension_and_mimetype_mapping("m3u8", "application/x-mpegURL");
-    svr_.set_file_extension_and_mimetype_mapping("ts", "video/MP2T");
+    svr_.set_file_extension_and_mimetype_mapping("m3u8", "application/vnd.apple.mpegurl");
+    svr_.set_file_extension_and_mimetype_mapping("ts", "video/mp2t");
 
     if (!svr_.set_mount_point("/", www_dir_)) {
         LOG_WARN("No se pudo montar la carpeta web: " + www_dir_ + ". Solo funcionará la API REST.");

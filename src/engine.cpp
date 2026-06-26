@@ -250,7 +250,7 @@ static bool write_packet_to_native_outputs(const std::string& channel_name, std:
                         n_out.last_written_dts[out_stream_idx] = filtered_pkt->dts;
                     }
                     
-                    int write_ret = av_write_frame(n_out.ctx, filtered_pkt);
+                    int write_ret = av_interleaved_write_frame(n_out.ctx, filtered_pkt);
                     av_packet_free(&filtered_pkt);
                     if (write_ret < 0) {
                         char err_buf[256];
@@ -280,7 +280,7 @@ static bool write_packet_to_native_outputs(const std::string& channel_name, std:
                     n_out.last_written_dts[out_stream_idx] = pkt_clone->dts;
                 }
                 
-                int write_ret = av_write_frame(n_out.ctx, pkt_clone);
+                int write_ret = av_interleaved_write_frame(n_out.ctx, pkt_clone);
                 if (write_ret < 0) {
                     char err_buf[256];
                     av_strerror(write_ret, err_buf, sizeof(err_buf));

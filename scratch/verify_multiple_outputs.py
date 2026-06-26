@@ -68,9 +68,9 @@ def main():
         shutil.copyfile(config_path, backup_path)
     
     # Start the server process
-    print("Starting antigravity_iptv server...")
+    print("Starting softproductiva_iptv server...")
     server_proc = subprocess.Popen(
-        ["/home/cristian/Antigravity/build/antigravity_iptv", str(PORT), "config.json"],
+        ["/home/cristian/Antigravity/build/softproductiva_iptv", str(PORT), "config.json"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd="/home/cristian/Antigravity"

@@ -1004,6 +1004,11 @@ function openSettingsTab(tabId) {
     } else if (tabId === 'settings-messages') {
         fetchMessages();
         renderMessageChannelsCheckboxSelection();
+    } else if (tabId === 'settings-sessions') {
+        fetchActiveSessions();
+        settingsLogsInterval = setInterval(fetchActiveSessions, 3000);
+    } else if (tabId === 'settings-blocked-ips') {
+        fetchBlockedIPs();
     }
 }
 
@@ -1386,6 +1391,120 @@ if (formGlobal) {
             alert('Configuración guardada correctamente.');
         } else {
             alert('Error al guardar la configuración: ' + (res ? res.error : 'Operación no permitida'));
+        }
+    });
+}
+
+// --- TAB 6: ACTIVE HLS SESSIONS ---
+async function fetchActiveSessions() {
+    const sessions = await apiCall('/api/sessions');
+    const tbody = document.getElementById('sessions-tbody');
+    const badge = document.getElementById('sessions-count-badge');
+    if (!tbody) return;
+
+    if (!sessions || sessions.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="no-data">No hay sesiones activas de HLS en este momento.</td></tr>`;
+        if (badge) badge.textContent = 'Total: 0';
+        return;
+    }
+
+    if (badge) badge.textContent = `Total: ${sessions.length}`;
+
+    tbody.innerHTML = sessions.map(s => {
+        const uptimeStr = formatUptime(s.uptime_secs);
+        return `
+            <tr>
+                <td><span class="badge-type" style="background:rgba(16,185,129,0.15); color:var(--green-alert); border-color:rgba(16,185,129,0.3);">HLS</span> <strong>${s.stream_name}</strong></td>
+                <td style="font-family:var(--font-mono);">${s.ip}</td>
+                <td style="font-size:12px; color:var(--text-secondary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${s.user_agent}">${s.user_agent || 'Desconocido'}</td>
+                <td style="font-family:var(--font-mono);">${uptimeStr}</td>
+                <td style="text-align:center;">
+                    <button class="btn btn-danger btn-small" onclick="blockIPFromSession('${s.ip}')" title="Bloquear IP">Bloquear</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function formatUptime(secs) {
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (mins < 60) return `${mins}m ${s}s`;
+    const hrs = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${hrs}h ${m}m`;
+}
+
+async function blockIPFromSession(ip) {
+    if (confirm(`¿Estás seguro de que deseas bloquear la dirección IP ${ip}? Perderá el acceso de inmediato.`)) {
+        const res = await apiCall('/api/blocked_ips', {
+            method: 'POST',
+            body: JSON.stringify({ ip })
+        });
+        if (res && res.success) {
+            fetchActiveSessions();
+        } else {
+            alert('No se pudo bloquear la IP: ' + (res ? res.error : 'error desconocido'));
+        }
+    }
+}
+
+// --- TAB 7: BLOCKED IPS ---
+async function fetchBlockedIPs() {
+    const blocked = await apiCall('/api/blocked_ips');
+    const tbody = document.getElementById('blocked-ips-tbody');
+    if (!tbody) return;
+
+    if (!blocked || blocked.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="2" class="no-data">No hay direcciones IP bloqueadas actualmente.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = blocked.map(ip => {
+        return `
+            <tr>
+                <td style="font-family:var(--font-mono); font-weight:600; color:var(--red-alert);">${ip}</td>
+                <td style="text-align:center;">
+                    <button class="btn btn-secondary btn-small" onclick="unblockIP('${ip}')" title="Permitir IP">Desbloquear</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function unblockIP(ip) {
+    if (confirm(`¿Desbloquear la dirección IP ${ip}?`)) {
+        const res = await apiCall(`/api/blocked_ips/${ip}`, {
+            method: 'DELETE'
+        });
+        if (res && res.success) {
+            fetchBlockedIPs();
+        } else {
+            alert('No se pudo desbloquear la IP: ' + (res ? res.error : 'error desconocido'));
+        }
+    }
+}
+
+// Setup block IP form listener
+const blockIpForm = document.getElementById('form-block-ip');
+if (blockIpForm) {
+    blockIpForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const ipInput = document.getElementById('block-ip-address');
+        if (!ipInput) return;
+        const ip = ipInput.value.trim();
+        if (!ip) return;
+
+        const res = await apiCall('/api/blocked_ips', {
+            method: 'POST',
+            body: JSON.stringify({ ip })
+        });
+        if (res && res.success) {
+            ipInput.value = '';
+            fetchBlockedIPs();
+        } else {
+            alert('No se pudo bloquear la IP: ' + (res ? res.error : 'error desconocido'));
         }
     });
 }
@@ -1888,6 +2007,10 @@ function applyRoleRestrictions() {
         if (tabUserLogs) tabUserLogs.style.display = 'none';
         const tabGlobal = document.getElementById('tab-global-btn');
         if (tabGlobal) tabGlobal.style.display = 'none';
+        const tabSessions = document.getElementById('tab-sessions-btn');
+        if (tabSessions) tabSessions.style.display = 'none';
+        const tabBlockedIps = document.getElementById('tab-blocked-ips-btn');
+        if (tabBlockedIps) tabBlockedIps.style.display = 'none';
         
         const userRoleGroup = document.getElementById('user-role-group');
         if (userRoleGroup) userRoleGroup.style.display = 'none';

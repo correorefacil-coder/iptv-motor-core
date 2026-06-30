@@ -303,6 +303,8 @@
                     <button class="tab-btn" data-tab="settings-channel-logs" id="tab-channel-logs-btn">Log de canales</button>
                     <button class="tab-btn" data-tab="settings-user-logs" id="tab-user-logs-btn">Log de usuario</button>
                     <button class="tab-btn" data-tab="settings-global" id="tab-global-btn">Configuración Global</button>
+                    <button class="tab-btn" data-tab="settings-sessions" id="tab-sessions-btn">Sesiones Activas</button>
+                    <button class="tab-btn" data-tab="settings-blocked-ips" id="tab-blocked-ips-btn">IPs Bloqueadas</button>
                 </div>
                 
                 <!-- Tab Content -->
@@ -486,6 +488,75 @@
                                     <div class="form-actions" style="margin-top: 16px;">
                                         <button type="button" id="btn-cancel-message" class="btn btn-secondary btn-small" style="display:none;">Cancelar</button>
                                         <button type="submit" id="btn-submit-message" class="btn btn-primary btn-small">Guardar Mensaje</button>
+                                    </div>
+                                </form>
+                            </div>
+                    </div>
+
+                    <!-- TAB 6: ACTIVE HLS SESSIONS -->
+                    <div id="settings-sessions" class="tab-pane">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4>Sesiones de Clientes HLS Activas</h4>
+                            <span id="sessions-count-badge" class="badge-ver" style="background: var(--accent); padding: 4px 8px;">Total: 0</span>
+                        </div>
+                        <p style="margin: 0 0 16px 0; font-size: 13px; color: var(--text-muted);">
+                            Muestra los dispositivos y reproductores externos (VLC, televisores, decodificadores) que están consumiendo actualmente canales vía HLS en tiempo real.
+                        </p>
+                        <div class="table-container" style="max-height: 380px; overflow-y: auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Canal</th>
+                                        <th>Dirección IP</th>
+                                        <th>User-Agent / Reproductor</th>
+                                        <th style="width: 120px;">Tiempo Activo</th>
+                                        <th style="width: 100px; text-align: center;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sessions-tbody">
+                                    <tr>
+                                        <td colspan="5" class="no-data">No hay sesiones activas de HLS en este momento.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- TAB 7: BLOCKED IPS -->
+                    <div id="settings-blocked-ips" class="tab-pane">
+                        <div class="users-section">
+                            <div class="users-left" style="flex: 1.2;">
+                                <h4>IPs Bloqueadas (Cortafuegos HLS)</h4>
+                                <p style="margin: 4px 0 16px 0; font-size: 13px; color: var(--text-muted);">
+                                    Las siguientes direcciones IP tienen prohibido el acceso a los flujos HLS y al panel.
+                                </p>
+                                <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Dirección IP</th>
+                                                <th style="width: 120px; text-align: center;">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="blocked-ips-tbody">
+                                            <tr>
+                                                <td colspan="2" class="no-data">No hay direcciones IP bloqueadas actualmente.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div class="users-right" style="flex: 0.8; border-left: 1px solid var(--border-color); padding-left: 20px;">
+                                <h4>Bloquear Dirección IP</h4>
+                                <form id="form-block-ip" style="margin-top: 12px;">
+                                    <div class="form-group">
+                                        <label for="block-ip-address">Dirección IP a Bloquear</label>
+                                        <input type="text" id="block-ip-address" placeholder="Ej: 192.168.1.50" required style="width: 100%; font-family: var(--font-mono);">
+                                        <small class="form-help">Ingresa la dirección IPv4 o IPv6 del cliente. Los hosts locales no pueden ser bloqueados.</small>
+                                    </div>
+                                    <div class="form-actions" style="margin-top: 16px;">
+                                        <button type="submit" class="btn btn-danger btn-small">Bloquear IP</button>
                                     </div>
                                 </form>
                             </div>

@@ -131,6 +131,14 @@ struct ScheduledMessage {
     std::vector<std::string> channel_ids;
 };
 
+struct HLSSession {
+    std::string ip;
+    std::string stream_id;
+    std::string user_agent;
+    std::chrono::system_clock::time_point start_time;
+    std::chrono::steady_clock::time_point last_request_time;
+};
+
 struct OutputDestination {
     std::string url;
     std::string output_interface;
@@ -346,6 +354,15 @@ public:
     bool DeleteMessage(const std::string& id);
     std::string GetActiveMessageForStream(const std::string& stream_id);
 
+    // HLS Sessions & IP Blocking
+    void RecordHLSAccess(const std::string& ip, const std::string& stream_id, const std::string& user_agent);
+    void PruneExpiredSessions();
+    json GetActiveSessionsJSON();
+    bool IsIPBlocked(const std::string& ip);
+    void BlockIP(const std::string& ip);
+    void UnblockIP(const std::string& ip);
+    json GetBlockedIPsJSON();
+
 private:
     StreamerEngine() = default;
     ~StreamerEngine() = default;
@@ -355,10 +372,14 @@ private:
     std::string config_path_ = "config.json";
     std::mutex engine_mutex_;
     std::mutex messages_mutex_;
+    std::mutex sessions_mutex_;
+    std::mutex blocked_ips_mutex_;
 
     std::string output_interface_;
 
     std::map<std::string, std::unique_ptr<InputSource>> inputs_;
     std::map<std::string, std::unique_ptr<OutputStream>> streams_;
     std::vector<ScheduledMessage> messages_;
+    std::vector<HLSSession> hls_sessions_;
+    std::vector<std::string> blocked_ips_;
 };

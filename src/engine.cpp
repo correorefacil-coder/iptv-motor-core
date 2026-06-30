@@ -2162,8 +2162,18 @@ bool StreamerEngine::LoadConfig() {
 
     if (cfg.contains("settings") && cfg["settings"].is_object()) {
         output_interface_ = cfg["settings"].value("output_interface", "");
+        
+        std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+        blocked_ips_.clear();
+        if (cfg["settings"].contains("blocked_ips") && cfg["settings"]["blocked_ips"].is_array()) {
+            for (const auto& ip_val : cfg["settings"]["blocked_ips"]) {
+                blocked_ips_.push_back(ip_val.get<std::string>());
+            }
+        }
     } else {
         output_interface_ = "";
+        std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+        blocked_ips_.clear();
     }
 
     // Load inputs
@@ -2289,6 +2299,15 @@ bool StreamerEngine::SaveConfig() {
     cfg["streams"] = json::array();
     cfg["settings"] = json::object();
     cfg["settings"]["output_interface"] = output_interface_;
+    
+    {
+        std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+        json blocked_arr = json::array();
+        for (const auto& ip : blocked_ips_) {
+            blocked_arr.push_back(ip);
+        }
+        cfg["settings"]["blocked_ips"] = blocked_arr;
+    }
 
     for (const auto& pair : inputs_) {
         json item;
@@ -2800,4 +2819,116 @@ std::string StreamerEngine::GetInputUrl(const std::string& input_id) {
         return it->second->GetUrl();
     }
     return "";
+}
+
+void StreamerEngine::RecordHLSAccess(const std::string& ip, const std::string& stream_id, const std::string& user_agent) {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    auto now_steady = std::chrono::steady_clock::now();
+    auto now_system = std::chrono::system_clock::now();
+
+    for (auto& session : hls_sessions_) {
+        if (session.ip == ip && session.stream_id == stream_id) {
+            session.last_request_time = now_steady;
+            session.user_agent = user_agent;
+            return;
+        }
+    }
+
+    HLSSession new_session = {ip, stream_id, user_agent, now_system, now_steady};
+    hls_sessions_.push_back(new_session);
+}
+
+void StreamerEngine::PruneExpiredSessions() {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    auto now = std::chrono::steady_clock::now();
+    hls_sessions_.erase(
+        std::remove_if(hls_sessions_.begin(), hls_sessions_.end(),
+                       [&](const HLSSession& s) {
+                           return std::chrono::duration_cast<std::chrono::seconds>(now - s.last_request_time).count() > 15;
+                       }),
+        hls_sessions_.end()
+    );
+}
+
+json StreamerEngine::GetActiveSessionsJSON() {
+    PruneExpiredSessions();
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    std::lock_guard<std::mutex> lock_engine(engine_mutex_);
+
+    json arr = json::array();
+    auto now_system = std::chrono::system_clock::now();
+
+    for (const auto& s : hls_sessions_) {
+        json item;
+        item["ip"] = s.ip;
+        item["stream_id"] = s.stream_id;
+        item["user_agent"] = s.user_agent;
+
+        std::string stream_name = s.stream_id;
+        auto it = streams_.find(s.stream_id);
+        if (it != streams_.end()) {
+            stream_name = it->second->GetName();
+        }
+        item["stream_name"] = stream_name;
+
+        auto uptime_secs = std::chrono::duration_cast<std::chrono::seconds>(now_system - s.start_time).count();
+        item["uptime_secs"] = uptime_secs;
+
+        arr.push_back(item);
+    }
+    return arr;
+}
+
+bool StreamerEngine::IsIPBlocked(const std::string& ip) {
+    std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+    return std::find(blocked_ips_.begin(), blocked_ips_.end(), ip) != blocked_ips_.end();
+}
+
+void StreamerEngine::BlockIP(const std::string& ip) {
+    if (ip == "127.0.0.1" || ip == "::1" || ip.empty()) {
+        return;
+    }
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+        if (std::find(blocked_ips_.begin(), blocked_ips_.end(), ip) == blocked_ips_.end()) {
+            blocked_ips_.push_back(ip);
+            changed = true;
+        }
+    }
+    if (changed) {
+        SaveConfig();
+        {
+            std::lock_guard<std::mutex> lock(sessions_mutex_);
+            hls_sessions_.erase(
+                std::remove_if(hls_sessions_.begin(), hls_sessions_.end(),
+                               [&](const HLSSession& s) { return s.ip == ip; }),
+                hls_sessions_.end()
+            );
+        }
+    }
+}
+
+void StreamerEngine::UnblockIP(const std::string& ip) {
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+        auto it = std::find(blocked_ips_.begin(), blocked_ips_.end(), ip);
+        if (it != blocked_ips_.end()) {
+            blocked_ips_.erase(it);
+            changed = true;
+        }
+    }
+    if (changed) {
+        SaveConfig();
+    }
+}
+
+json StreamerEngine::GetBlockedIPsJSON() {
+    std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
+    json arr = json::array();
+    for (const auto& ip : blocked_ips_) {
+        arr.push_back(ip);
+    }
+    return arr;
 }

@@ -527,12 +527,29 @@ void HTTPServer::ServerLoop() {
     });
 
     svr_.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        // Global IP Blocklist Check
+        if (StreamerEngine::GetInstance().IsIPBlocked(req.remote_addr)) {
+            res.status = 403;
+            res.set_content("Acceso denegado: IP bloqueada", "text/plain");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
         if (req.path == "/login.html" || req.path == "/login" || req.path == "/logo.png" || req.path == "/Logo.PNG" || req.path == "/style.css" || req.path == "/favicon.ico" || req.path == "/app.js") {
             return httplib::Server::HandlerResponse::Unhandled;
         }
 
         // Permitir acceso público y sin autenticación a los flujos HLS para reproductores externos como VLC
         if (req.path.rfind("/hls/", 0) == 0) {
+            // Track session details
+            std::string path = req.path;
+            if (path.length() > 5) {
+                size_t next_slash = path.find('/', 5);
+                if (next_slash != std::string::npos) {
+                    std::string stream_id = path.substr(5, next_slash - 5);
+                    std::string user_agent = req.get_header_value("User-Agent");
+                    StreamerEngine::GetInstance().RecordHLSAccess(req.remote_addr, stream_id, user_agent);
+                }
+            }
             return httplib::Server::HandlerResponse::Unhandled;
         }
 
@@ -1129,6 +1146,55 @@ void HTTPServer::ServerLoop() {
 
         res.set_content(m3u, "application/mpegurl");
         res.set_header("Content-Disposition", "attachment; filename=\"playlist.m3u\"");
+    });
+
+    svr_.Get("/api/sessions", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckProgramadorBlock(req, res)) return;
+        if (!CheckWritePermission(req, res)) return;
+        
+        json j = StreamerEngine::GetInstance().GetActiveSessionsJSON();
+        res.set_content(j.dump(), "application/json");
+    });
+
+    svr_.Get("/api/blocked_ips", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckProgramadorBlock(req, res)) return;
+        if (!CheckWritePermission(req, res)) return;
+        
+        json j = StreamerEngine::GetInstance().GetBlockedIPsJSON();
+        res.set_content(j.dump(), "application/json");
+    });
+
+    svr_.Post("/api/blocked_ips", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckProgramadorBlock(req, res)) return;
+        if (!CheckWritePermission(req, res)) return;
+        std::string user = GetSessionUser(req);
+        
+        try {
+            auto body = json::parse(req.body);
+            std::string ip = body.value("ip", "");
+            if (ip.empty()) {
+                res.status = 400;
+                res.set_content("{\"success\":false,\"error\":\"IP vacía\"}", "application/json");
+                return;
+            }
+            StreamerEngine::GetInstance().BlockIP(ip);
+            res.set_content("{\"success\":true}", "application/json");
+            UserLogger::GetInstance().LogAction(user, "Bloqueó dirección IP '" + ip + "'");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content("{\"success\":false,\"error\":\"JSON inválido\"}", "application/json");
+        }
+    });
+
+    svr_.Delete(R"(/api/blocked_ips/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckProgramadorBlock(req, res)) return;
+        if (!CheckWritePermission(req, res)) return;
+        std::string user = GetSessionUser(req);
+        std::string ip = req.matches[1];
+        
+        StreamerEngine::GetInstance().UnblockIP(ip);
+        res.set_content("{\"success\":true}", "application/json");
+        UserLogger::GetInstance().LogAction(user, "Desbloqueó dirección IP '" + ip + "'");
     });
 
 

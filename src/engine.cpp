@@ -510,6 +510,134 @@ static int write_to_ffmpeg_pipe(void* opaque, uint8_t* buf, int buf_size) {
     fflush(pipe);
     return static_cast<int>(written);
 }
+static std::string NormalizeSrtUrl(const std::string& url) {
+    if (url.rfind("srt://", 0) != 0) {
+        return url;
+    }
+
+    std::string base = url;
+    size_t hash_pos = base.find('#');
+    std::string params_str = "";
+
+    if (hash_pos != std::string::npos) {
+        params_str = base.substr(hash_pos + 1);
+        base = base.substr(0, hash_pos);
+    }
+
+    size_t query_pos = base.find('?');
+    std::string query_params = "";
+    if (query_pos != std::string::npos) {
+        query_params = base.substr(query_pos + 1);
+        base = base.substr(0, query_pos);
+    }
+
+    std::vector<std::pair<std::string, std::string>> params;
+
+    // Parse query params (delimited by &)
+    if (!query_params.empty()) {
+        size_t start = 0;
+        while (start < query_params.length()) {
+            size_t end = query_params.find('&', start);
+            std::string pair = (end == std::string::npos) ? query_params.substr(start) : query_params.substr(start, end - start);
+            if (!pair.empty()) {
+                size_t eq = pair.find('=');
+                if (eq != std::string::npos) {
+                    params.push_back({pair.substr(0, eq), pair.substr(eq + 1)});
+                } else {
+                    params.push_back({pair, ""});
+                }
+            }
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+    }
+
+    // Parse hash params (delimited by #, but respecting # inside values)
+    if (!params_str.empty()) {
+        std::string current_key = "";
+        std::string current_val = "";
+        
+        size_t first_eq = params_str.find('=');
+        size_t i = 0;
+        if (first_eq != std::string::npos) {
+            current_key = params_str.substr(0, first_eq);
+            i = first_eq + 1;
+        } else {
+            current_key = params_str;
+            i = params_str.length();
+        }
+        
+        while (i < params_str.length()) {
+            char c = params_str[i];
+            if (c == '#') {
+                // Look ahead to check if it's a delimiter: #[alphanumeric_or_underscore]=
+                size_t j = i + 1;
+                while (j < params_str.length() && (std::isalnum(static_cast<unsigned char>(params_str[j])) || params_str[j] == '_')) {
+                    j++;
+                }
+                if (j > i + 1 && j < params_str.length() && params_str[j] == '=') {
+                    // It's a delimiter! Save the current key-value pair
+                    params.push_back({current_key, current_val});
+                    // Start next key-value pair
+                    current_key = params_str.substr(i + 1, j - (i + 1));
+                    current_val = "";
+                    i = j + 1; // skip past the '='
+                    continue;
+                }
+            }
+            current_val += c;
+            i++;
+        }
+        if (!current_key.empty()) {
+            params.push_back({current_key, current_val});
+        }
+    }
+
+    std::string new_url = base;
+    bool first = true;
+    std::vector<std::string> seen_keys;
+
+    for (const auto& p : params) {
+        if (std::find(seen_keys.begin(), seen_keys.end(), p.first) != seen_keys.end()) {
+            continue;
+        }
+        seen_keys.push_back(p.first);
+
+        std::string val = p.second;
+        if (p.first == "latency") {
+            try {
+                long long lat_val = std::stoll(val);
+                if (lat_val < 100000) {
+                    lat_val *= 1000;
+                    val = std::to_string(lat_val);
+                }
+            } catch (...) {}
+        }
+
+        new_url += (first ? "?" : "&") + p.first + "=" + val;
+        first = false;
+    }
+
+    return new_url;
+}
+
+static void ensure_automatic_hls_output(const std::string& stream_id, std::vector<OutputDestination>& outputs) {
+    bool has_hls = false;
+    for (const auto& out : outputs) {
+        if (out.type == "hls") {
+            has_hls = true;
+            break;
+        }
+    }
+    if (!has_hls) {
+        OutputDestination hls_dest;
+        hls_dest.type = "hls";
+        hls_dest.url = "www/hls/" + stream_id + "/index.m3u8";
+        hls_dest.output_interface = "";
+        outputs.push_back(hls_dest);
+    }
+}
+
 
 void OutputStream::OutputLoopVideoPack() {
     bool initialized = false;
@@ -1679,8 +1807,8 @@ void InputSource::InputLoop() {
         // For SRT we can let FFmpeg handle default parameters or pass them in URL
 
         LOG_INFO("Conectando a entrada [" + name_ + "] URL: " + url_);
-        
-        int ret = avformat_open_input(&in_fmt_ctx, url_.c_str(), nullptr, &opts);
+        std::string normalized_url = NormalizeSrtUrl(url_);
+        int ret = avformat_open_input(&in_fmt_ctx, normalized_url.c_str(), nullptr, &opts);
         if (opts) av_dict_free(&opts);
 
         if (ret < 0) {
@@ -1914,7 +2042,8 @@ std::vector<ProgramInfo> InputSource::ProbeURL(const std::string& url, std::stri
     
     std::vector<ProgramInfo> progs;
     
-    int ret = avformat_open_input(&in_fmt_ctx, url.c_str(), nullptr, &opts);
+    std::string normalized_url = NormalizeSrtUrl(url);
+    int ret = avformat_open_input(&in_fmt_ctx, normalized_url.c_str(), nullptr, &opts);
     if (opts) av_dict_free(&opts);
 
     if (ret < 0) {
@@ -2105,6 +2234,7 @@ bool StreamerEngine::LoadConfig() {
                 else dest.type = "hls";
                 outputs.push_back(dest);
             }
+            ensure_automatic_hls_output(id, outputs);
 
             auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, outputs, enabled,
                                                              input_url, is_video_pack,
@@ -2328,6 +2458,8 @@ bool StreamerEngine::AddStream(const std::string& name, const std::string& input
         }
     }
 
+    ensure_automatic_hls_output(id, resolved_outputs);
+
     auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, resolved_outputs, enabled,
                                                      input_url, is_video_pack,
                                                      transcode_enabled, transcode_video, video_input_format, video_output_format,
@@ -2377,6 +2509,8 @@ bool StreamerEngine::UpdateStream(const std::string& id, const std::string& name
             out.output_interface = output_interface_;
         }
     }
+
+    ensure_automatic_hls_output(id, resolved_outputs);
 
     it->second = std::make_unique<OutputStream>(id, name, input_id, program_number, resolved_outputs, enabled,
                                                input_url, is_video_pack,

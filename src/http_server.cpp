@@ -1109,6 +1109,29 @@ void HTTPServer::ServerLoop() {
         res.set_content(j.dump(), "application/json");
     });
 
+    svr_.Get("/api/playlist.m3u", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckProgramadorBlock(req, res)) return;
+        if (!CheckWritePermission(req, res)) return;
+
+        std::string host = req.get_header_value("Host");
+        if (host.empty()) {
+            host = "127.0.0.1:45020";
+        }
+
+        json streams = StreamerEngine::GetInstance().GetStreamsJSON();
+        std::string m3u = "#EXTM3U\n";
+        for (const auto& stream : streams) {
+            std::string id = stream.value("id", "");
+            std::string name = stream.value("name", "");
+            m3u += "#EXTINF:-1," + name + "\n";
+            m3u += "http://" + host + "/hls/" + id + "/index.m3u8\n";
+        }
+
+        res.set_content(m3u, "application/mpegurl");
+        res.set_header("Content-Disposition", "attachment; filename=\"playlist.m3u\"");
+    });
+
+
     svr_.Post("/api/settings", [](const httplib::Request& req, httplib::Response& res) {
         if (!CheckProgramadorBlock(req, res)) return;
         if (!CheckWritePermission(req, res)) return;

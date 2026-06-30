@@ -496,20 +496,22 @@ body {
 .card-path {
     display: flex;
     justify-content: space-between;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    align-items: flex-start;
+    gap: 8px;
 }
 
 .path-lbl {
     color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .path-val {
     font-family: var(--font-mono);
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    word-break: break-all;
+    white-space: normal;
+    text-align: right;
+    flex: 1;
+    min-width: 0;
 }
 
 /* Card Actions Overlay */

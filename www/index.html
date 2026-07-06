@@ -341,11 +341,19 @@
                                         <label for="user-username">Nombre de Usuario</label>
                                         <input type="text" id="user-username" required placeholder="Ej. IngCristian">
                                     </div>
-                                    <div class="form-group">
-                                        <label for="user-password">Contraseña</label>
-                                        <input type="text" id="user-password" required placeholder="Ej. clave123">
-                                        <small class="form-help" id="user-password-help">Para un usuario existente, deja vacío para no cambiarla.</small>
-                                    </div>
+                                     <div class="form-group" id="user-current-password-group" style="display:none;">
+                                         <label for="user-current-password">Contraseña Actual</label>
+                                         <input type="password" id="user-current-password" placeholder="Escribe tu contraseña actual">
+                                     </div>
+                                     <div class="form-group" id="user-password-group">
+                                         <label for="user-password" id="user-password-label">Contraseña</label>
+                                         <input type="password" id="user-password" required placeholder="Ej. clave123">
+                                         <small class="form-help" id="user-password-help">Para un usuario existente, deja vacío para no cambiarla.</small>
+                                     </div>
+                                     <div class="form-group" id="user-confirm-password-group" style="display:none;">
+                                         <label for="user-confirm-password">Confirmar Nueva Contraseña</label>
+                                         <input type="password" id="user-confirm-password" placeholder="Confirma tu nueva contraseña">
+                                     </div>
                                     <div class="form-group" id="user-role-group">
                                         <label for="user-role">Rol de Usuario</label>
                                         <select id="user-role" required>

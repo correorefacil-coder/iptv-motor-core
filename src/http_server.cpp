@@ -142,7 +142,7 @@ public:
         return true;
     }
 
-    bool UpdateUser(const std::string& requesting_user, const std::string& target_username, const std::string& new_password, const std::string& new_role, const std::vector<std::string>& allowed_streams, std::string& err) {
+    bool UpdateUser(const std::string& requesting_user, const std::string& target_username, const std::string& current_password, const std::string& new_password, const std::string& new_role, const std::vector<std::string>& allowed_streams, std::string& err) {
         std::lock_guard<std::mutex> lock(mutex_);
         auto req_it = users_.find(requesting_user);
         if (req_it == users_.end()) {
@@ -155,6 +155,21 @@ public:
         if (target_it == users_.end()) {
             err = "Usuario objetivo no existe";
             return false;
+        }
+
+        // Validar contraseña actual si se modifica el propio perfil
+        if (requesting_user == target_username) {
+            if (target_it->second.password != current_password) {
+                err = "La contraseña actual es incorrecta";
+                return false;
+            }
+            if (new_password.empty()) {
+                err = "La nueva contraseña no puede estar vacía";
+                return false;
+            }
+            target_it->second.password = new_password;
+            Save();
+            return true;
         }
 
         if (req_role == "Consulta" || req_role == "Programadores") {
@@ -673,6 +688,7 @@ void HTTPServer::ServerLoop() {
         std::string target_user = req.matches[1];
         try {
             auto body = json::parse(req.body);
+            std::string current_password = body.value("current_password", "");
             std::string password = body.value("password", "");
             std::string role = body.value("role", "");
             std::vector<std::string> allowed_streams;
@@ -683,7 +699,7 @@ void HTTPServer::ServerLoop() {
             }
             
             std::string err;
-            if (UserManager::GetInstance().UpdateUser(requesting_user, target_user, password, role, allowed_streams, err)) {
+            if (UserManager::GetInstance().UpdateUser(requesting_user, target_user, current_password, password, role, allowed_streams, err)) {
                 json r;
                 r["success"] = true;
                 res.set_content(r.dump(), "application/json");

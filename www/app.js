@@ -1161,9 +1161,45 @@ function editUser(username, role) {
         uField.disabled = true;
     }
     
-    if (pField) {
-        pField.value = '';
-        pField.required = false;
+    // Toggle current password and confirm password groups depending on own profile edit
+    const currentGroup = document.getElementById('user-current-password-group');
+    const confirmGroup = document.getElementById('user-confirm-password-group');
+    const currentInput = document.getElementById('user-current-password');
+    const confirmInput = document.getElementById('user-confirm-password');
+    const passwordLabel = document.getElementById('user-password-label');
+    
+    if (currentUser && username === currentUser.username) {
+        if (currentGroup) currentGroup.style.display = 'block';
+        if (confirmGroup) confirmGroup.style.display = 'block';
+        if (currentInput) {
+            currentInput.value = '';
+            currentInput.required = true;
+        }
+        if (confirmInput) {
+            confirmInput.value = '';
+            confirmInput.required = true;
+        }
+        if (passwordLabel) passwordLabel.textContent = 'Nueva Contraseña';
+        if (pField) {
+            pField.value = '';
+            pField.required = true;
+        }
+    } else {
+        if (currentGroup) currentGroup.style.display = 'none';
+        if (confirmGroup) confirmGroup.style.display = 'none';
+        if (currentInput) {
+            currentInput.value = '';
+            currentInput.required = false;
+        }
+        if (confirmInput) {
+            confirmInput.value = '';
+            confirmInput.required = false;
+        }
+        if (passwordLabel) passwordLabel.textContent = 'Contraseña';
+        if (pField) {
+            pField.value = '';
+            pField.required = false;
+        }
     }
     
     if (rField) {
@@ -1177,7 +1213,7 @@ function editUser(username, role) {
         // Show/hide allowed streams checklist dynamically when editing
         const group = document.getElementById('user-allowed-packs-group');
         if (group) {
-            if (role === 'Programadores') {
+            if (role === 'Programadores' && (currentUser.role === 'SuperAdmin' || currentUser.role === 'Admin')) {
                 group.style.display = 'block';
                 const uObj = loadedUsers.find(u => u.username === username);
                 const selectedStreams = uObj && uObj.allowed_streams ? uObj.allowed_streams : [];
@@ -1222,6 +1258,24 @@ function resetUserForm() {
         pField.required = true;
     }
     
+    const currentGroup = document.getElementById('user-current-password-group');
+    const confirmGroup = document.getElementById('user-confirm-password-group');
+    const currentInput = document.getElementById('user-current-password');
+    const confirmInput = document.getElementById('user-confirm-password');
+    const passwordLabel = document.getElementById('user-password-label');
+    
+    if (currentGroup) currentGroup.style.display = 'none';
+    if (confirmGroup) confirmGroup.style.display = 'none';
+    if (currentInput) {
+        currentInput.value = '';
+        currentInput.required = false;
+    }
+    if (confirmInput) {
+        confirmInput.value = '';
+        confirmInput.required = false;
+    }
+    if (passwordLabel) passwordLabel.textContent = 'Contraseña';
+    
     if (rField) {
         rField.disabled = false;
         rField.value = 'Consulta';
@@ -1265,9 +1319,18 @@ if (formUser) {
                 body: JSON.stringify({ username, password, role, allowed_streams })
             });
         } else {
+            let current_password = '';
+            if (currentUser && origUsername === currentUser.username) {
+                current_password = document.getElementById('user-current-password').value;
+                const confirm_password = document.getElementById('user-confirm-password').value;
+                if (password !== confirm_password) {
+                    alert('Las nuevas contraseñas no coinciden.');
+                    return;
+                }
+            }
             res = await apiCall(`/api/users/${origUsername}`, {
                 method: 'PUT',
-                body: JSON.stringify({ password, role, allowed_streams })
+                body: JSON.stringify({ password, role, allowed_streams, current_password })
             });
         }
         

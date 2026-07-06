@@ -1569,6 +1569,8 @@ void InputSource::Stop() {
     if (!running_) return;
     running_ = false;
     
+    sleep_cv_.notify_all();
+    
     if (thread_.joinable()) {
         thread_.join();
     }
@@ -1799,12 +1801,18 @@ void InputSource::InputLoop() {
     avformat_network_init();
 
     while (running_) {
-        AVFormatContext* in_fmt_ctx = nullptr;
+        AVFormatContext* in_fmt_ctx = avformat_alloc_context();
+        if (in_fmt_ctx) {
+            in_fmt_ctx->interrupt_callback.callback = [](void* ctx) -> int {
+                auto* self = static_cast<InputSource*>(ctx);
+                return (self && !self->IsRunning()) ? 1 : 0;
+            };
+            in_fmt_ctx->interrupt_callback.opaque = this;
+        }
+
         AVDictionary* opts = nullptr;
-        
         // For HLS/HTTP we set timeout
         av_dict_set(&opts, "timeout", "5000000", 0); // 5 seconds in microseconds
-        // For SRT we can let FFmpeg handle default parameters or pass them in URL
 
         LOG_INFO("Conectando a entrada [" + name_ + "] URL: " + url_);
         std::string normalized_url = NormalizeSrtUrl(url_);
@@ -1816,7 +1824,10 @@ void InputSource::InputLoop() {
             av_strerror(ret, err_buf, sizeof(err_buf));
             LOG_WARN("No se pudo abrir la entrada [" + name_ + "]: " + std::string(err_buf) + ". Reintentando en 5s...");
             connected_ = false;
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            {
+                std::unique_lock<std::mutex> lock(sleep_mutex_);
+                sleep_cv_.wait_for(lock, std::chrono::seconds(5), [&] { return !running_; });
+            }
             continue;
         }
 
@@ -1827,7 +1838,10 @@ void InputSource::InputLoop() {
             LOG_WARN("No se pudo obtener información del flujo en [" + name_ + "]: " + std::string(err_buf) + ". Reintentando...");
             avformat_close_input(&in_fmt_ctx);
             connected_ = false;
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            {
+                std::unique_lock<std::mutex> lock(sleep_mutex_);
+                sleep_cv_.wait_for(lock, std::chrono::seconds(5), [&] { return !running_; });
+            }
             continue;
         }
 

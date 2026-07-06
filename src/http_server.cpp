@@ -562,6 +562,7 @@ void HTTPServer::ServerLoop() {
                 if (next_slash != std::string::npos) {
                     std::string stream_id = path.substr(5, next_slash - 5);
                     std::string user_agent = req.get_header_value("User-Agent");
+                    LOG_INFO("Acceso HLS detectado: Canal ID=" + stream_id + ", IP=" + req.remote_addr + ", User-Agent=" + user_agent);
                     StreamerEngine::GetInstance().RecordHLSAccess(req.remote_addr, stream_id, user_agent);
                 }
             }

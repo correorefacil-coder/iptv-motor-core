@@ -264,6 +264,7 @@ public:
     bool IsEnabled() const { return enabled_; }
     bool IsVideoPack() const { return is_video_pack_; }
     void SetEnabled(bool enabled);
+    bool IsRunning() const { return running_; }
 
     // Static helper to probe a URL for programs list
     static std::vector<ProgramInfo> ProbeURL(const std::string& url, std::string& error_out);
@@ -302,6 +303,8 @@ private:
     std::atomic<uint64_t> total_bytes_accumulator_{0};
     
     std::chrono::steady_clock::time_point last_bitrate_calc_;
+    std::condition_variable sleep_cv_;
+    std::mutex sleep_mutex_;
 };
 
 // Orchestrator for all input and output streams

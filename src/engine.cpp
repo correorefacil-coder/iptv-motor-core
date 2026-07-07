@@ -63,7 +63,8 @@ static void cleanup_native_output(NativeOutput& out) {
 static bool init_native_outputs(const std::string& channel_name, std::string& error_message,
                                  const std::vector<OutputDestination>& outputs,
                                  const std::vector<PreparedStream>& prepared,
-                                 std::vector<NativeOutput>& out_list) {
+                                 std::vector<NativeOutput>& out_list,
+                                 OutputStream* parent_stream) {
     for (auto& n_out : out_list) {
         cleanup_native_output(n_out);
     }
@@ -112,6 +113,13 @@ static bool init_native_outputs(const std::string& channel_name, std::string& er
         }
         
         int open_ret = avformat_alloc_output_context2(&n_out.ctx, nullptr, format_name.c_str(), r_url.c_str());
+        if (open_ret >= 0 && parent_stream) {
+            n_out.ctx->interrupt_callback.callback = [](void* ctx) -> int {
+                auto* stream = static_cast<OutputStream*>(ctx);
+                return (stream && !stream->IsRunning()) ? 1 : 0;
+            };
+            n_out.ctx->interrupt_callback.opaque = parent_stream;
+        }
         if (open_ret < 0) {
             char err_buf[256];
             av_strerror(open_ret, err_buf, sizeof(err_buf));
@@ -1006,7 +1014,7 @@ void OutputStream::OutputLoopVideoPack() {
                 }
             }
 
-            if (init_native_outputs(name_, error_message_, outputs_, local_prepared, native_outputs)) {
+            if (init_native_outputs(name_, error_message_, outputs_, local_prepared, native_outputs, this)) {
                 initialized = true;
                 {
                     std::lock_guard<std::mutex> stat_lock(stats_mutex_);
@@ -1236,6 +1244,13 @@ void OutputStream::OutputLoop() {
 
                 if (use_transcoding) {
                     int ret = avformat_alloc_output_context2(&out_fmt_ctx, nullptr, "mpegts", nullptr);
+                    if (ret >= 0) {
+                        out_fmt_ctx->interrupt_callback.callback = [](void* ctx) -> int {
+                            auto* stream = static_cast<OutputStream*>(ctx);
+                            return (stream && !stream->IsRunning()) ? 1 : 0;
+                        };
+                        out_fmt_ctx->interrupt_callback.opaque = this;
+                    }
                     if (ret < 0) {
                         char err_buf[256];
                         av_strerror(ret, err_buf, sizeof(err_buf));
@@ -1413,7 +1428,7 @@ void OutputStream::OutputLoop() {
                     }
                 } else {
                     std::string err_msg;
-                    if (init_native_outputs(cur_name, err_msg, cur_outputs, local_prepared, native_outputs)) {
+                    if (init_native_outputs(cur_name, err_msg, cur_outputs, local_prepared, native_outputs, this)) {
                         initialized = true;
                     } else {
                         {

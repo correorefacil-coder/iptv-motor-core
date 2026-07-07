@@ -182,6 +182,7 @@ public:
     std::string GetOutputUrl() const { return output_url_; }
     bool IsEnabled() const { return enabled_; }
     void SetEnabled(bool enabled);
+    bool IsRunning() const { return running_; }
     std::string GetOutputInterface() const { return output_interface_; }
     std::string GetVideoFilename() const { return video_filename_; }
     const std::vector<OutputDestination>& GetOutputs() const { return outputs_; }

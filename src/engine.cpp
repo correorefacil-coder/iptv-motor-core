@@ -1205,26 +1205,50 @@ void OutputStream::OutputLoop() {
         if (should_init) {
             cleanup();
             if (!local_prepared.empty()) {
-                std::lock_guard<std::mutex> stat_lock(stats_mutex_);
-                error_message_ = "";
-
+                std::string cur_name;
+                bool cur_transcode_enabled = false;
+                bool cur_transcode_video = false;
+                bool cur_transcode_audio = false;
+                int cur_limit_bitrate = 0;
+                std::string cur_video_output_format;
+                std::string cur_audio_output_format;
+                std::string cur_detected_video_codec;
+                std::vector<OutputDestination> cur_outputs;
                 std::string active_msg = StreamerEngine::GetInstance().GetActiveMessageForStream(id_);
-                initialized_message_ = active_msg;
+                
+                {
+                    std::lock_guard<std::mutex> stat_lock(stats_mutex_);
+                    error_message_ = "";
+                    initialized_message_ = active_msg;
+                    cur_name = name_;
+                    cur_transcode_enabled = transcode_enabled_;
+                    cur_transcode_video = transcode_video_;
+                    cur_transcode_audio = transcode_audio_;
+                    cur_limit_bitrate = limit_bitrate_;
+                    cur_video_output_format = video_output_format_;
+                    cur_audio_output_format = audio_output_format_;
+                    cur_detected_video_codec = detected_video_codec_;
+                    cur_outputs = outputs_;
+                }
+
                 bool force_transcode = !active_msg.empty();
-                use_transcoding = transcode_enabled_ || force_transcode;
+                use_transcoding = cur_transcode_enabled || force_transcode;
 
                 if (use_transcoding) {
                     int ret = avformat_alloc_output_context2(&out_fmt_ctx, nullptr, "mpegts", nullptr);
                     if (ret < 0) {
                         char err_buf[256];
                         av_strerror(ret, err_buf, sizeof(err_buf));
-                        error_message_ = "Error alloc output: " + std::string(err_buf);
-                        LOG_ERROR("Canal [" + name_ + "]: " + error_message_);
+                        {
+                            std::lock_guard<std::mutex> stat_lock(stats_mutex_);
+                            error_message_ = "Error alloc output: " + std::string(err_buf);
+                        }
+                        LOG_ERROR("Canal [" + cur_name + "]: Error alloc output: " + std::string(err_buf));
                         std::this_thread::sleep_for(std::chrono::seconds(2));
                         continue;
                     }
 
-                    bool do_video_transcode = transcode_video_ || (limit_bitrate_ > 0) || force_transcode;
+                    bool do_video_transcode = cur_transcode_video || (cur_limit_bitrate > 0) || force_transcode;
                     bool use_cuda = do_video_transcode && IsNvidiaGPUPresent();
                     
                     std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error ";
@@ -1234,9 +1258,9 @@ void OutputStream::OutputLoop() {
                     ffmpeg_cmd += "-copyts -i pipe:0 ";
                     
                     if (do_video_transcode) {
-                        std::string target_format = video_output_format_;
-                        if (!transcode_video_) {
-                            std::string det_v = detected_video_codec_;
+                        std::string target_format = cur_video_output_format;
+                        if (!cur_transcode_video) {
+                            std::string det_v = cur_detected_video_codec;
                             std::transform(det_v.begin(), det_v.end(), det_v.begin(), ::tolower);
                             if (det_v == "hevc" || det_v == "h265") target_format = "hevc";
                             else if (det_v == "mpeg2" || det_v == "mpeg2video") target_format = "mpeg2video";
@@ -1272,25 +1296,25 @@ void OutputStream::OutputLoop() {
                             ffmpeg_cmd += "-vf \"drawtext=fontfile=/usr/share/fonts/truetype/freefont/FreeSans.ttf:text='" + escaped_msg + "':expansion=none:x=(w-text_w)/2:y=h-50:fontsize=32:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=10\" ";
                         }
                         
-                        if (limit_bitrate_ > 0) {
-                            int v_bitrate = std::max(200, limit_bitrate_ - 128);
+                        if (cur_limit_bitrate > 0) {
+                            int v_bitrate = std::max(200, cur_limit_bitrate - 128);
                             ffmpeg_cmd += "-b:v " + std::to_string(v_bitrate) + "k -maxrate " + std::to_string(v_bitrate) + "k -bufsize " + std::to_string(2 * v_bitrate) + "k ";
                         }
                     } else {
                         ffmpeg_cmd += "-c:v copy ";
                     }
                     
-                    if (transcode_audio_) {
+                    if (cur_transcode_audio) {
                         std::string codec = "aac";
-                        if (audio_output_format_ == "mp3") codec = "libmp3lame";
-                        else if (audio_output_format_ == "ac3") codec = "ac3";
+                        if (cur_audio_output_format == "mp3") codec = "libmp3lame";
+                        else if (cur_audio_output_format == "ac3") codec = "ac3";
                         ffmpeg_cmd += "-c:a " + codec + " -b:a 128k ";
                     } else {
                         ffmpeg_cmd += "-c:a copy ";
                     }
                     
                     std::string outputs_str = "";
-                    for (const auto& dest : outputs_) {
+                    for (const auto& dest : cur_outputs) {
                         std::string r_url = dest.url;
                         std::string o_iface = dest.output_interface;
                         if (!o_iface.empty()) {
@@ -1326,12 +1350,15 @@ void OutputStream::OutputLoop() {
                     }
                     ffmpeg_cmd += outputs_str;
                     
-                    LOG_INFO("Canal [" + name_ + "]: Iniciando comando de transcodificación: " + ffmpeg_cmd);
+                    LOG_INFO("Canal [" + cur_name + "]: Iniciando comando de transcodificación: " + ffmpeg_cmd);
                     
                     ffmpeg_pipe_ = popen(ffmpeg_cmd.c_str(), "w");
                     if (!ffmpeg_pipe_) {
-                        error_message_ = "Error al abrir pipe de FFmpeg para transcodificación.";
-                        LOG_ERROR("Canal [" + name_ + "]: " + error_message_);
+                        {
+                            std::lock_guard<std::mutex> stat_lock(stats_mutex_);
+                            error_message_ = "Error al abrir pipe de FFmpeg para transcodificación.";
+                        }
+                        LOG_ERROR("Canal [" + cur_name + "]: Error al abrir pipe de FFmpeg para transcodificación.");
                         avformat_free_context(out_fmt_ctx);
                         out_fmt_ctx = nullptr;
                         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -1385,9 +1412,14 @@ void OutputStream::OutputLoop() {
                         }
                     }
                 } else {
-                    if (init_native_outputs(name_, error_message_, outputs_, local_prepared, native_outputs)) {
+                    std::string err_msg;
+                    if (init_native_outputs(cur_name, err_msg, cur_outputs, local_prepared, native_outputs)) {
                         initialized = true;
                     } else {
+                        {
+                            std::lock_guard<std::mutex> stat_lock(stats_mutex_);
+                            error_message_ = err_msg;
+                        }
                         cleanup();
                         std::this_thread::sleep_for(std::chrono::seconds(2));
                         continue;

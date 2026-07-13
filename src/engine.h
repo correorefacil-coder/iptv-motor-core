@@ -350,6 +350,10 @@ public:
     // Global Settings
     std::string GetOutputInterface();
     void SetOutputInterface(const std::string& iface);
+    std::string GetNVENCPreset();
+    void SetNVENCPreset(const std::string& preset);
+    std::string GetCPUPreset();
+    void SetCPUPreset(const std::string& preset);
 
     // Messages Settings
     std::vector<ScheduledMessage> GetMessages();
@@ -380,6 +384,8 @@ private:
     std::mutex blocked_ips_mutex_;
 
     std::string output_interface_;
+    std::string nvenc_preset_ = "p4";
+    std::string cpu_preset_ = "ultrafast";
 
     std::map<std::string, std::unique_ptr<InputSource>> inputs_;
     std::map<std::string, std::unique_ptr<OutputStream>> streams_;

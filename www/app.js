@@ -1434,8 +1434,21 @@ async function loadGlobalSettings() {
         });
     }
     
-    if (settings && settings.output_interface) {
-        select.value = settings.output_interface;
+    if (settings) {
+        if (settings.output_interface) {
+            select.value = settings.output_interface;
+        } else {
+            select.value = '';
+        }
+        
+        const nvencSelect = document.getElementById('global-nvenc-preset');
+        if (nvencSelect && settings.nvenc_preset) {
+            nvencSelect.value = settings.nvenc_preset;
+        }
+        const cpuSelect = document.getElementById('global-cpu-preset');
+        if (cpuSelect && settings.cpu_preset) {
+            cpuSelect.value = settings.cpu_preset;
+        }
     } else {
         select.value = '';
     }
@@ -1446,9 +1459,15 @@ if (formGlobal) {
     formGlobal.addEventListener('submit', async (e) => {
         e.preventDefault();
         const iface = document.getElementById('global-output-interface').value;
+        const nvenc_preset = document.getElementById('global-nvenc-preset').value;
+        const cpu_preset = document.getElementById('global-cpu-preset').value;
         const res = await apiCall('/api/settings', {
             method: 'POST',
-            body: JSON.stringify({ output_interface: iface })
+            body: JSON.stringify({
+                output_interface: iface,
+                nvenc_preset: nvenc_preset,
+                cpu_preset: cpu_preset
+            })
         });
         if (res && res.success) {
             alert('Configuración guardada correctamente.');

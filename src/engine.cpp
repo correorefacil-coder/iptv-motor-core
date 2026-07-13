@@ -795,9 +795,11 @@ void OutputStream::OutputLoopVideoPack() {
                 
                 ffmpeg_cmd += "-c:v " + codec + " ";
                 if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                    ffmpeg_cmd += "-preset p4 -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+                    std::string p = StreamerEngine::GetInstance().GetNVENCPreset();
+                    ffmpeg_cmd += "-preset " + p + " -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
                 } else if (codec == "libx264" || codec == "libx265") {
-                    ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
+                    std::string p = StreamerEngine::GetInstance().GetCPUPreset();
+                    ffmpeg_cmd += "-preset " + p + " -tune zerolatency -g 60 -flags:v -global_header ";
                 }
                 
                 if (!current_msg.empty()) {
@@ -1294,9 +1296,11 @@ void OutputStream::OutputLoop() {
                         
                         ffmpeg_cmd += "-c:v " + codec + " ";
                         if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                            ffmpeg_cmd += "-preset p4 -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+                            std::string p = StreamerEngine::GetInstance().GetNVENCPreset();
+                            ffmpeg_cmd += "-preset " + p + " -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
                         } else if (codec == "libx264" || codec == "libx265") {
-                            ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
+                            std::string p = StreamerEngine::GetInstance().GetCPUPreset();
+                            ffmpeg_cmd += "-preset " + p + " -tune zerolatency -g 60 -flags:v -global_header ";
                         }
                         
                         if (!active_msg.empty()) {
@@ -2223,6 +2227,8 @@ bool StreamerEngine::LoadConfig() {
 
     if (cfg.contains("settings") && cfg["settings"].is_object()) {
         output_interface_ = cfg["settings"].value("output_interface", "");
+        nvenc_preset_ = cfg["settings"].value("nvenc_preset", "p4");
+        cpu_preset_ = cfg["settings"].value("cpu_preset", "ultrafast");
         
         std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
         blocked_ips_.clear();
@@ -2233,6 +2239,8 @@ bool StreamerEngine::LoadConfig() {
         }
     } else {
         output_interface_ = "";
+        nvenc_preset_ = "p4";
+        cpu_preset_ = "ultrafast";
         std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
         blocked_ips_.clear();
     }
@@ -2360,6 +2368,8 @@ bool StreamerEngine::SaveConfig() {
     cfg["streams"] = json::array();
     cfg["settings"] = json::object();
     cfg["settings"]["output_interface"] = output_interface_;
+    cfg["settings"]["nvenc_preset"] = nvenc_preset_;
+    cfg["settings"]["cpu_preset"] = cpu_preset_;
     
     {
         std::lock_guard<std::mutex> lock(blocked_ips_mutex_);
@@ -2755,6 +2765,28 @@ std::string StreamerEngine::GetOutputInterface() {
 void StreamerEngine::SetOutputInterface(const std::string& iface) {
     std::lock_guard<std::mutex> lock(engine_mutex_);
     output_interface_ = iface;
+    SaveConfig();
+}
+
+std::string StreamerEngine::GetNVENCPreset() {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    return nvenc_preset_;
+}
+
+void StreamerEngine::SetNVENCPreset(const std::string& preset) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    nvenc_preset_ = preset;
+    SaveConfig();
+}
+
+std::string StreamerEngine::GetCPUPreset() {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    return cpu_preset_;
+}
+
+void StreamerEngine::SetCPUPreset(const std::string& preset) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    cpu_preset_ = preset;
     SaveConfig();
 }
 

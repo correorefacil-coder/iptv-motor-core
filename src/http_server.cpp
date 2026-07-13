@@ -1140,6 +1140,8 @@ void HTTPServer::ServerLoop() {
         if (!CheckProgramadorBlock(req, res)) return;
         json j;
         j["output_interface"] = StreamerEngine::GetInstance().GetOutputInterface();
+        j["nvenc_preset"] = StreamerEngine::GetInstance().GetNVENCPreset();
+        j["cpu_preset"] = StreamerEngine::GetInstance().GetCPUPreset();
         res.set_content(j.dump(), "application/json");
     });
 
@@ -1221,10 +1223,26 @@ void HTTPServer::ServerLoop() {
         std::string user = GetSessionUser(req);
         try {
             auto body = json::parse(req.body);
-            std::string iface = body.value("output_interface", "");
-            StreamerEngine::GetInstance().SetOutputInterface(iface);
+            std::string log_msg = "Modificó configuraciones globales:";
+            
+            if (body.contains("output_interface")) {
+                std::string iface = body["output_interface"];
+                StreamerEngine::GetInstance().SetOutputInterface(iface);
+                log_msg += " Interfaz=" + iface;
+            }
+            if (body.contains("nvenc_preset")) {
+                std::string nvenc_p = body["nvenc_preset"];
+                StreamerEngine::GetInstance().SetNVENCPreset(nvenc_p);
+                log_msg += " Preset GPU=" + nvenc_p;
+            }
+            if (body.contains("cpu_preset")) {
+                std::string cpu_p = body["cpu_preset"];
+                StreamerEngine::GetInstance().SetCPUPreset(cpu_p);
+                log_msg += " Preset CPU=" + cpu_p;
+            }
+            
             res.set_content("{\"success\":true}", "application/json");
-            UserLogger::GetInstance().LogAction(user, "Modificó interfaz de red de salida global a '" + iface + "'");
+            UserLogger::GetInstance().LogAction(user, log_msg);
         } catch (const std::exception& e) {
             res.status = 400;
             res.set_content("{\"success\":false,\"error\":\"JSON inválido\"}", "application/json");

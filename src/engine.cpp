@@ -797,6 +797,7 @@ void OutputStream::OutputLoopVideoPack() {
                 if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
                     std::string p = "p4";
                     if (transcode_preset_ == "ultrafast") p = "p1";
+                    else if (transcode_preset_ == "superfast") p = "p2";
                     else if (transcode_preset_ == "veryfast") p = "p3";
                     else if (transcode_preset_ == "faster") p = "p4";
                     else if (transcode_preset_ == "fast") p = "p5";
@@ -1307,6 +1308,7 @@ void OutputStream::OutputLoop() {
                         if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
                             std::string p = "p4";
                             if (transcode_preset_ == "ultrafast") p = "p1";
+                            else if (transcode_preset_ == "superfast") p = "p2";
                             else if (transcode_preset_ == "veryfast") p = "p3";
                             else if (transcode_preset_ == "faster") p = "p4";
                             else if (transcode_preset_ == "fast") p = "p5";

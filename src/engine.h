@@ -155,7 +155,7 @@ public:
                  const std::string& video_input_format = "", const std::string& video_output_format = "",
                  bool transcode_audio = false, const std::string& audio_input_format = "",
                  const std::string& audio_output_format = "", int limit_bitrate = 0,
-                 const std::string& video_filename = "");
+                 const std::string& video_filename = "", const std::string& transcode_preset = "");
     ~OutputStream();
 
     bool IsTranscodeEnabled() const { return transcode_enabled_; }
@@ -166,6 +166,7 @@ public:
     std::string GetAudioInputFormat() const { return audio_input_format_; }
     std::string GetAudioOutputFormat() const { return audio_output_format_; }
     int GetLimitBitrate() const { return limit_bitrate_; }
+    std::string GetTranscodePreset() const { return transcode_preset_; }
     std::string GetDetectedVideoCodec() const { return detected_video_codec_; }
     std::string GetDetectedAudioCodec() const { return detected_audio_codec_; }
 
@@ -244,6 +245,7 @@ private:
     std::string video_filename_;
     std::string input_url_;
     bool is_video_pack_ = false;
+    std::string transcode_preset_;
 };
 
 // Represents an input connection (Pack) which may contain multiple programs
@@ -330,12 +332,14 @@ public:
                    const std::vector<OutputDestination>& outputs, bool enabled,
                    bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                    const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
-                   const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename, std::string& id_out);
+                   const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename, std::string& id_out,
+                   const std::string& transcode_preset = "");
     bool UpdateStream(const std::string& id, const std::string& name, const std::string& input_id,
                       int program_number, const std::vector<OutputDestination>& outputs, bool enabled,
                       bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                       const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
-                      const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename);
+                      const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename,
+                      const std::string& transcode_preset = "");
     bool DeleteStream(const std::string& id);
 
     // API Helpers

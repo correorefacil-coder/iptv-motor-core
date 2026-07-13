@@ -653,6 +653,7 @@ function applyProgrammerStreamModalRestrictions() {
     document.getElementById('stream-transcode-audio').disabled = isProgrammer;
     document.getElementById('stream-audio-output').disabled = isProgrammer;
     document.getElementById('stream-limit-bitrate').disabled = isProgrammer;
+    document.getElementById('stream-transcode-preset').disabled = isProgrammer;
 }
 
 document.getElementById('btn-new-stream').addEventListener('click', async () => {
@@ -671,6 +672,7 @@ document.getElementById('btn-new-stream').addEventListener('click', async () => 
     document.getElementById('stream-audio-input').value = 'auto';
     document.getElementById('stream-audio-output').value = 'aac';
     document.getElementById('stream-limit-bitrate').value = '';
+    document.getElementById('stream-transcode-preset').value = 'fast';
     document.getElementById('stream-video-input-detected').textContent = 'Auto';
     document.getElementById('stream-audio-input-detected').textContent = 'Auto';
     
@@ -735,6 +737,7 @@ async function editStream(id) {
     document.getElementById('stream-audio-input').value = stream.audio_input_format || 'auto';
     document.getElementById('stream-audio-output').value = stream.audio_output_format || 'aac';
     document.getElementById('stream-limit-bitrate').value = stream.limit_bitrate || '';
+    document.getElementById('stream-transcode-preset').value = stream.transcode_preset || 'fast';
 
     // Set detected codec labels
     const detVideo = stream.detected_video_codec || stream.video_input_format || 'Auto';
@@ -791,6 +794,7 @@ formStream.addEventListener('submit', async (e) => {
     const audio_input_format = document.getElementById('stream-audio-input').value;
     const audio_output_format = document.getElementById('stream-audio-output').value;
     const limit_bitrate = parseInt(document.getElementById('stream-limit-bitrate').value) || 0;
+    const transcode_preset = document.getElementById('stream-transcode-preset').value;
 
     const inputSource = inputs.find(i => i.id === input_id);
     const isVideoPack = inputSource && inputSource.is_video_pack;
@@ -848,7 +852,8 @@ formStream.addEventListener('submit', async (e) => {
         audio_input_format,
         audio_output_format,
         limit_bitrate,
-        video_filename
+        video_filename,
+        transcode_preset
     };
 
     let res;
@@ -1434,21 +1439,8 @@ async function loadGlobalSettings() {
         });
     }
     
-    if (settings) {
-        if (settings.output_interface) {
-            select.value = settings.output_interface;
-        } else {
-            select.value = '';
-        }
-        
-        const nvencSelect = document.getElementById('global-nvenc-preset');
-        if (nvencSelect && settings.nvenc_preset) {
-            nvencSelect.value = settings.nvenc_preset;
-        }
-        const cpuSelect = document.getElementById('global-cpu-preset');
-        if (cpuSelect && settings.cpu_preset) {
-            cpuSelect.value = settings.cpu_preset;
-        }
+    if (settings && settings.output_interface) {
+        select.value = settings.output_interface;
     } else {
         select.value = '';
     }
@@ -1459,15 +1451,9 @@ if (formGlobal) {
     formGlobal.addEventListener('submit', async (e) => {
         e.preventDefault();
         const iface = document.getElementById('global-output-interface').value;
-        const nvenc_preset = document.getElementById('global-nvenc-preset').value;
-        const cpu_preset = document.getElementById('global-cpu-preset').value;
         const res = await apiCall('/api/settings', {
             method: 'POST',
-            body: JSON.stringify({
-                output_interface: iface,
-                nvenc_preset: nvenc_preset,
-                cpu_preset: cpu_preset
-            })
+            body: JSON.stringify({ output_interface: iface })
         });
         if (res && res.success) {
             alert('Configuración guardada correctamente.');

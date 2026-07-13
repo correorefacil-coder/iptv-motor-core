@@ -345,7 +345,7 @@ OutputStream::OutputStream(const std::string& id, const std::string& name, const
                            const std::string& video_input_format, const std::string& video_output_format,
                            bool transcode_audio, const std::string& audio_input_format,
                            const std::string& audio_output_format, int limit_bitrate,
-                           const std::string& video_filename)
+                           const std::string& video_filename, const std::string& transcode_preset)
     : id_(id), name_(name), input_id_(input_id), program_number_(program_number),
       outputs_(outputs), enabled_(enabled),
       input_url_(input_url), is_video_pack_(is_video_pack),
@@ -353,7 +353,7 @@ OutputStream::OutputStream(const std::string& id, const std::string& name, const
       video_input_format_(video_input_format), video_output_format_(video_output_format),
       transcode_audio_(transcode_audio), audio_input_format_(audio_input_format),
       audio_output_format_(audio_output_format), limit_bitrate_(limit_bitrate),
-      video_filename_(video_filename) {
+      video_filename_(video_filename), transcode_preset_(transcode_preset) {
     if (!outputs.empty()) {
         output_url_ = outputs[0].url;
         output_interface_ = outputs[0].output_interface;
@@ -795,10 +795,19 @@ void OutputStream::OutputLoopVideoPack() {
                 
                 ffmpeg_cmd += "-c:v " + codec + " ";
                 if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                    std::string p = StreamerEngine::GetInstance().GetNVENCPreset();
+                    std::string p = "p4";
+                    if (transcode_preset_ == "ultrafast") p = "p1";
+                    else if (transcode_preset_ == "veryfast") p = "p3";
+                    else if (transcode_preset_ == "faster") p = "p4";
+                    else if (transcode_preset_ == "fast") p = "p5";
+                    else if (transcode_preset_ == "medium") p = "p6";
+                    else if (transcode_preset_ == "slow") p = "p7";
                     ffmpeg_cmd += "-preset " + p + " -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
                 } else if (codec == "libx264" || codec == "libx265") {
-                    std::string p = StreamerEngine::GetInstance().GetCPUPreset();
+                    std::string p = transcode_preset_;
+                    if (p != "ultrafast" && p != "superfast" && p != "veryfast" && p != "faster" && p != "fast" && p != "medium" && p != "slow" && p != "slower" && p != "placebo") {
+                        p = "ultrafast";
+                    }
                     ffmpeg_cmd += "-preset " + p + " -tune zerolatency -g 60 -flags:v -global_header ";
                 }
                 
@@ -1296,10 +1305,19 @@ void OutputStream::OutputLoop() {
                         
                         ffmpeg_cmd += "-c:v " + codec + " ";
                         if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                            std::string p = StreamerEngine::GetInstance().GetNVENCPreset();
+                            std::string p = "p4";
+                            if (transcode_preset_ == "ultrafast") p = "p1";
+                            else if (transcode_preset_ == "veryfast") p = "p3";
+                            else if (transcode_preset_ == "faster") p = "p4";
+                            else if (transcode_preset_ == "fast") p = "p5";
+                            else if (transcode_preset_ == "medium") p = "p6";
+                            else if (transcode_preset_ == "slow") p = "p7";
                             ffmpeg_cmd += "-preset " + p + " -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
                         } else if (codec == "libx264" || codec == "libx265") {
-                            std::string p = StreamerEngine::GetInstance().GetCPUPreset();
+                            std::string p = transcode_preset_;
+                            if (p != "ultrafast" && p != "superfast" && p != "veryfast" && p != "faster" && p != "fast" && p != "medium" && p != "slow" && p != "slower" && p != "placebo") {
+                                p = "ultrafast";
+                            }
                             ffmpeg_cmd += "-preset " + p + " -tune zerolatency -g 60 -flags:v -global_header ";
                         }
                         
@@ -2276,6 +2294,7 @@ bool StreamerEngine::LoadConfig() {
             std::string audio_output_format = item.value("audio_output_format", "");
             int limit_bitrate = item.value("limit_bitrate", 0);
             std::string video_filename = item.value("video_filename", "");
+            std::string transcode_preset = item.value("transcode_preset", "");
 
             std::string input_url = "";
             bool is_video_pack = false;
@@ -2318,7 +2337,7 @@ bool StreamerEngine::LoadConfig() {
             auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, outputs, enabled,
                                                              input_url, is_video_pack,
                                                              transcode_enabled, transcode_video, video_input_format, video_output_format,
-                                                             transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename);
+                                                             transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, transcode_preset);
             streams_[id] = std::move(out_stream);
         }
     }
@@ -2426,6 +2445,7 @@ bool StreamerEngine::SaveConfig() {
         item["audio_output_format"] = pair.second->GetAudioOutputFormat();
         item["limit_bitrate"] = pair.second->GetLimitBitrate();
         item["video_filename"] = pair.second->GetVideoFilename();
+        item["transcode_preset"] = pair.second->GetTranscodePreset();
         cfg["streams"].push_back(item);
     }
 
@@ -2527,7 +2547,8 @@ bool StreamerEngine::AddStream(const std::string& name, const std::string& input
                                const std::vector<OutputDestination>& outputs, bool enabled,
                                bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                                const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
-                               const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename, std::string& id_out) {
+                               const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename, std::string& id_out,
+                               const std::string& transcode_preset) {
     std::lock_guard<std::mutex> lock(engine_mutex_);
     
     std::string id = "stream_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
@@ -2553,7 +2574,7 @@ bool StreamerEngine::AddStream(const std::string& name, const std::string& input
     auto out_stream = std::make_unique<OutputStream>(id, name, input_id, program_number, resolved_outputs, enabled,
                                                      input_url, is_video_pack,
                                                      transcode_enabled, transcode_video, video_input_format, video_output_format,
-                                                     transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename);
+                                                     transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, transcode_preset);
     
     if (inputs_.find(input_id) != inputs_.end()) {
         inputs_[input_id]->RegisterOutputStream(out_stream.get());
@@ -2572,7 +2593,8 @@ bool StreamerEngine::UpdateStream(const std::string& id, const std::string& name
                                   int program_number, const std::vector<OutputDestination>& outputs, bool enabled,
                                   bool transcode_enabled, bool transcode_video, const std::string& video_input_format,
                                   const std::string& video_output_format, bool transcode_audio, const std::string& audio_input_format,
-                                  const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename) {
+                                  const std::string& audio_output_format, int limit_bitrate, const std::string& video_filename,
+                                  const std::string& transcode_preset) {
     std::lock_guard<std::mutex> lock(engine_mutex_);
     
     auto it = streams_.find(id);
@@ -2605,7 +2627,7 @@ bool StreamerEngine::UpdateStream(const std::string& id, const std::string& name
     it->second = std::make_unique<OutputStream>(id, name, input_id, program_number, resolved_outputs, enabled,
                                                input_url, is_video_pack,
                                                transcode_enabled, transcode_video, video_input_format, video_output_format,
-                                               transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename);
+                                               transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, transcode_preset);
 
     if (inputs_.find(input_id) != inputs_.end()) {
         inputs_[input_id]->RegisterOutputStream(it->second.get());
@@ -2727,6 +2749,7 @@ json StreamerEngine::GetStreamsJSON() {
         item["video_filename"] = pair.second->GetVideoFilename();
         item["detected_video_codec"] = pair.second->GetDetectedVideoCodec();
         item["detected_audio_codec"] = pair.second->GetDetectedAudioCodec();
+        item["transcode_preset"] = pair.second->GetTranscodePreset();
         arr.push_back(item);
     }
     return arr;

@@ -957,11 +957,12 @@ void HTTPServer::ServerLoop() {
             std::string audio_output_format = body.value("audio_output_format", "");
             int limit_bitrate = body.value("limit_bitrate", 0);
             std::string video_filename = body.value("video_filename", "");
+            std::string transcode_preset = body.value("transcode_preset", "");
 
             std::string id_out;
             if (StreamerEngine::GetInstance().AddStream(name, input_id, program_number, outputs, enabled,
                                                        transcode_enabled, transcode_video, video_input_format, video_output_format,
-                                                       transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, id_out)) {
+                                                       transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, id_out, transcode_preset)) {
                 json r;
                 r["success"] = true;
                 r["id"] = id_out;
@@ -1019,6 +1020,7 @@ void HTTPServer::ServerLoop() {
             std::string audio_output_format = body.value("audio_output_format", "");
             int limit_bitrate = body.value("limit_bitrate", 0);
             std::string video_filename = body.value("video_filename", "");
+            std::string transcode_preset = body.value("transcode_preset", "");
 
             if (role == "Programadores") {
                 if (!IsStreamAllowed(user, id)) {
@@ -1060,7 +1062,8 @@ void HTTPServer::ServerLoop() {
                     body.value("transcode_enabled", false) != existing_stream.value("transcode_enabled", false) ||
                     body.value("transcode_video", false) != existing_stream.value("transcode_video", false) ||
                     body.value("transcode_audio", false) != existing_stream.value("transcode_audio", false) ||
-                    body.value("limit_bitrate", 0) != existing_stream.value("limit_bitrate", 0)) {
+                    body.value("limit_bitrate", 0) != existing_stream.value("limit_bitrate", 0) ||
+                    body.value("transcode_preset", "") != existing_stream.value("transcode_preset", "")) {
                     
                     res.status = 403;
                     res.set_content("{\"success\":false,\"error\":\"Acceso denegado: Los programadores solo pueden cambiar el archivo de video y activar/desactivar el canal.\"}", "application/json");
@@ -1070,7 +1073,7 @@ void HTTPServer::ServerLoop() {
 
             if (StreamerEngine::GetInstance().UpdateStream(id, name, input_id, program_number, outputs, enabled,
                                                           transcode_enabled, transcode_video, video_input_format, video_output_format,
-                                                          transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename)) {
+                                                          transcode_audio, audio_input_format, audio_output_format, limit_bitrate, video_filename, transcode_preset)) {
                 res.set_content("{\"success\":true}", "application/json");
                 std::string log_url = outputs.empty() ? "" : outputs[0].url;
                 UserLogger::GetInstance().LogAction(user, "Modificó canal '" + name + "' (Salida: " + log_url + ", Estado: " + (enabled ? "Activado" : "Pausado") + ")");

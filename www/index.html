@@ -247,6 +247,20 @@
                         <input type="number" id="stream-limit-bitrate" placeholder="Ej. 1500 (dejar en 0 o vacío para no limitar)">
                         <small class="form-help">Establece el bitrate máximo para la transmisión en kilobits por segundo.</small>
                     </div>
+
+                    <!-- Transcoding Preset -->
+                    <div class="form-group">
+                        <label for="stream-transcode-preset">Preajuste de Calidad de Transcodificación (Preset)</label>
+                        <select id="stream-transcode-preset">
+                            <option value="ultrafast">Ultra Rápido (Baja Calidad - Ahorro de recursos)</option>
+                            <option value="veryfast">Muy Rápido</option>
+                            <option value="faster">Rápido</option>
+                            <option value="fast">Medio (Calidad Estándar)</option>
+                            <option value="medium">Alta Calidad (Recomendado para Deportes)</option>
+                            <option value="slow">Máxima Calidad (Alto consumo de recursos)</option>
+                        </select>
+                        <small class="form-help">Selecciona el perfil de calidad. Si cuentas con GPU NVIDIA, esto ajustará los presets de hardware de P1 (Ultra Rápido) a P7 (Máxima Calidad). Si usas CPU, ajustará los presets de x264/x265.</small>
+                    </div>
                 </div>
 
                 <div class="form-group checkbox-group">
@@ -408,39 +422,17 @@
                             </table>
                         </div>
                     </div>
+                    
+                    <!-- TAB 4: GLOBAL CONFIGURATION -->
+                    <div id="settings-global" class="tab-pane">
+                        <h4>Configuración Global del Servidor</h4>
+                        <form id="form-global" style="margin-top: 16px;">
+                            <div class="form-group">
                                 <label for="global-output-interface">Tarjeta de Red por Defecto para Salida (NIC)</label>
                                 <select id="global-output-interface">
                                     <option value="">Por defecto (Cualquiera / Auto)</option>
                                 </select>
                                 <small class="form-help">Selecciona la interfaz de red física a utilizar por defecto para la transmisión de flujos UDP Multicast.</small>
-                            </div>
-                            <div class="form-group" style="margin-top: 16px;">
-                                <label for="global-nvenc-preset">Preajuste de Transcodificación por GPU (NVIDIA NVENC)</label>
-                                <select id="global-nvenc-preset">
-                                    <option value="p1">P1 (Ultra Rápido - Peor Calidad)</option>
-                                    <option value="p2">P2 (Muy Rápido)</option>
-                                    <option value="p3">P3 (Rápido)</option>
-                                    <option value="p4">P4 (Medio - Calidad Balanceada)</option>
-                                    <option value="p5">P5 (Lento - Alta Calidad)</option>
-                                    <option value="p6">P6 (Muy Lento - Mejor Calidad)</option>
-                                    <option value="p7">P7 (Lentísimo - Máxima Calidad)</option>
-                                </select>
-                                <small class="form-help">Ajusta el preset de codificación por hardware en la GPU. Opciones más lentas (como P5-P7) aumentan la calidad de imagen pero consumen más recursos del codificador.</small>
-                            </div>
-                            <div class="form-group" style="margin-top: 16px;">
-                                <label for="global-cpu-preset">Preajuste de Transcodificación por CPU (x264/x265)</label>
-                                <select id="global-cpu-preset">
-                                    <option value="ultrafast">Ultrafast (Ultra Rápido - Peor Calidad)</option>
-                                    <option value="superfast">Superfast (Súper Rápido)</option>
-                                    <option value="veryfast">Veryfast (Muy Rápido)</option>
-                                    <option value="faster">Faster (Rápido)</option>
-                                    <option value="fast">Fast (Medio-Rápido)</option>
-                                    <option value="medium">Medium (Medio - Balanceado)</option>
-                                    <option value="slow">Slow (Lento - Alta Calidad)</option>
-                                    <option value="slower">Slower (Muy Lento)</option>
-                                    <option value="placebo">Placebo (Máxima Calidad)</option>
-                                </select>
-                                <small class="form-help">Ajusta el preset de codificación por software. Opciones más lentas (como fast, medium, slow) aumentan notablemente la calidad pero elevan drásticamente el consumo de CPU.</small>
                             </div>
                             <div class="form-actions" style="margin-top: 24px;">
                                 <button type="submit" class="btn btn-primary btn-small">Guardar Configuración</button>

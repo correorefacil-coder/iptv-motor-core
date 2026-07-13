@@ -912,6 +912,106 @@ void HTTPServer::ServerLoop() {
         res.set_content(j.dump(), "application/json");
     });
 
+    svr_.Get("/api/output_packs", [](const httplib::Request& req, httplib::Response& res) {
+        json j = StreamerEngine::GetInstance().GetOutputPacksJSON();
+        res.set_content(j.dump(), "application/json");
+    });
+
+    svr_.Post("/api/output_packs", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckWritePermission(req, res)) return;
+        std::string user = GetSessionUser(req);
+        std::string role = UserManager::GetInstance().GetRole(user);
+        if (role == "Programadores") {
+            res.status = 403;
+            res.set_content("{\"success\":false,\"error\":\"Acceso denegado: Los programadores no pueden crear packs de salida.\"}", "application/json");
+            return;
+        }
+        try {
+            auto body = json::parse(req.body);
+            std::string name = body["name"];
+            std::string output_url = body["output_url"];
+            bool enabled = body.value("enabled", true);
+            
+            std::vector<OutputPackChannel> channels;
+            for (const auto& ch_item : body["channels"]) {
+                OutputPackChannel ch;
+                ch.input_id = ch_item["input_id"];
+                ch.program_number = ch_item["program_number"];
+                ch.name = ch_item["name"];
+                channels.push_back(ch);
+            }
+            
+            std::string id_out;
+            bool ok = StreamerEngine::GetInstance().AddOutputPack(name, output_url, channels, enabled, id_out);
+            if (ok) {
+                res.set_content("{\"success\":true,\"id\":\"" + id_out + "\"}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"success\":false,\"error\":\"Error al agregar el pack de salida\"}", "application/json");
+            }
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content("{\"success\":false,\"error\":\"JSON inválido o campos faltantes\"}", "application/json");
+        }
+    });
+
+    svr_.Put(R"(/api/output_packs/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckWritePermission(req, res)) return;
+        std::string user = GetSessionUser(req);
+        std::string role = UserManager::GetInstance().GetRole(user);
+        if (role == "Programadores") {
+            res.status = 403;
+            res.set_content("{\"success\":false,\"error\":\"Acceso denegado: Los programadores no pueden actualizar packs de salida.\"}", "application/json");
+            return;
+        }
+        std::string id = req.matches[1];
+        try {
+            auto body = json::parse(req.body);
+            std::string name = body["name"];
+            std::string output_url = body["output_url"];
+            bool enabled = body.value("enabled", true);
+            
+            std::vector<OutputPackChannel> channels;
+            for (const auto& ch_item : body["channels"]) {
+                OutputPackChannel ch;
+                ch.input_id = ch_item["input_id"];
+                ch.program_number = ch_item["program_number"];
+                ch.name = ch_item["name"];
+                channels.push_back(ch);
+            }
+            
+            bool ok = StreamerEngine::GetInstance().UpdateOutputPack(id, name, output_url, channels, enabled);
+            if (ok) {
+                res.set_content("{\"success\":true}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"success\":false,\"error\":\"Error al actualizar el pack de salida\"}", "application/json");
+            }
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content("{\"success\":false,\"error\":\"JSON inválido o campos faltantes\"}", "application/json");
+        }
+    });
+
+    svr_.Delete(R"(/api/output_packs/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        if (!CheckWritePermission(req, res)) return;
+        std::string user = GetSessionUser(req);
+        std::string role = UserManager::GetInstance().GetRole(user);
+        if (role == "Programadores") {
+            res.status = 403;
+            res.set_content("{\"success\":false,\"error\":\"Acceso denegado: Los programadores no pueden eliminar packs de salida.\"}", "application/json");
+            return;
+        }
+        std::string id = req.matches[1];
+        bool ok = StreamerEngine::GetInstance().DeleteOutputPack(id);
+        if (ok) {
+            res.set_content("{\"success\":true}", "application/json");
+        } else {
+            res.status = 500;
+            res.set_content("{\"success\":false,\"error\":\"Error al eliminar el pack de salida\"}", "application/json");
+        }
+    });
+
     svr_.Post("/api/streams", [](const httplib::Request& req, httplib::Response& res) {
         if (!CheckWritePermission(req, res)) return;
         std::string user = GetSessionUser(req);

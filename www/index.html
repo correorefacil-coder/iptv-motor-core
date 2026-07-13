@@ -70,6 +70,7 @@
                 <button id="btn-config" class="btn btn-secondary">Configuración</button>
                 <button id="btn-new-input" class="btn btn-primary-outline">+ Agregar Pack</button>
                 <button id="btn-new-stream" class="btn btn-primary">+ Nuevo Canal</button>
+                <button id="btn-new-output-pack" class="btn btn-primary-outline">+ Pack de Salida</button>
                 <button id="btn-logout" class="btn btn-danger btn-small">Cerrar Sesión</button>
             </div>
         </header>
@@ -90,7 +91,14 @@
 
             <!-- CHANNELS GRID (SPTS) -->
             <section class="grid-section">
-                <h2 class="section-title">Canales Activos / Salidas</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h2 class="section-title" style="margin-bottom: 0; flex: 1;">Canales Activos / Salidas</h2>
+                    <div class="view-controls" style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary btn-small view-btn active" id="view-btn-complete" onclick="changeViewMode('complete')">Completa</button>
+                        <button class="btn btn-secondary btn-small view-btn" id="view-btn-simple" onclick="changeViewMode('simple')">Simple</button>
+                        <button class="btn btn-secondary btn-small view-btn" id="view-btn-list" onclick="changeViewMode('list')">Lista</button>
+                    </div>
+                </div>
                 <div id="streams-grid" class="streams-grid">
                     <!-- Stream cards will be inserted here dynamically -->
                     <div class="no-data">Cargando canales...</div>
@@ -103,6 +111,14 @@
                 <div id="inputs-container" class="inputs-container">
                     <!-- Input packs cards/table will be inserted here -->
                     <div class="no-data">Cargando fuentes de entrada...</div>
+                </div>
+            </section>
+
+            <!-- OUTPUT PACKS SECTION (MPTS SRT) -->
+            <section class="inputs-section" id="output-packs-section">
+                <h2 class="section-title">Packs de Salida (Multiplexación MPTS a SRT)</h2>
+                <div id="output-packs-container" class="inputs-container">
+                    <div class="no-data">Cargando packs de salida...</div>
                 </div>
             </section>
         </main>
@@ -271,6 +287,41 @@
                 <div class="form-actions">
                     <button type="button" id="btn-cancel-stream" class="btn btn-secondary">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Guardar Canal</button>
+                </div>
+            </form>
+        </div>
+    <!-- MODAL: ADD/EDIT OUTPUT PACK -->
+    <div id="modal-output-pack" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-modal-output-pack">&times;</span>
+            <h3 id="modal-opack-title">Nuevo Pack de Salida</h3>
+            <form id="form-output-pack">
+                <input type="hidden" id="opack-id">
+                <div class="form-group">
+                    <label for="opack-name">Nombre del Pack</label>
+                    <input type="text" id="opack-name" required placeholder="Ej. WIN SPORTS PACK o DISCOVERY BUNDLE">
+                </div>
+                <div class="form-group">
+                    <label for="opack-url">URL de Salida (SRT / UDP / etc.)</label>
+                    <input type="text" id="opack-url" required placeholder="Ej. srt://:50001, udp://239.1.1.1:50001?pkt_size=1316 o srt://38.199.67.242:50001">
+                    <small class="form-help">Ingresa el puerto local para escuchar SRT (ej. srt://:50001) o la dirección de destino SRT/UDP Multicast.</small>
+                </div>
+                
+                <div class="form-group" style="margin-top: 16px;">
+                    <label>Selecciona los Canales / Programas a incluir:</label>
+                    <div id="opack-channels-list" style="max-height: 250px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Checkboxes will be inserted dynamically here -->
+                        <span class="form-help" style="font-style: italic;">No hay canales o packs de entrada detectados.</span>
+                    </div>
+                </div>
+
+                <div class="form-group checkbox-group" style="margin-top: 16px;">
+                    <input type="checkbox" id="opack-enabled" checked>
+                    <label for="opack-enabled">Activar transmisión inmediatamente</label>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-cancel-output-pack" class="btn btn-secondary">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Pack</button>
                 </div>
             </form>
         </div>

@@ -2209,6 +2209,9 @@ void StreamerEngine::Shutdown() {
     std::lock_guard<std::mutex> lock(engine_mutex_);
     
     // Stop all outputs first
+    for (auto& pair : output_packs_) {
+        pair.second->Stop();
+    }
     for (auto& pair : streams_) {
         pair.second->Stop();
     }
@@ -2218,6 +2221,7 @@ void StreamerEngine::Shutdown() {
         pair.second->Stop();
     }
     
+    output_packs_.clear();
     streams_.clear();
     inputs_.clear();
 }
@@ -2240,8 +2244,10 @@ bool StreamerEngine::LoadConfig() {
     }
 
     // Stop current runs
+    for (auto& pair : output_packs_) pair.second->Stop();
     for (auto& pair : streams_) pair.second->Stop();
     for (auto& pair : inputs_) pair.second->Stop();
+    output_packs_.clear();
     streams_.clear();
     inputs_.clear();
 
@@ -2363,6 +2369,30 @@ bool StreamerEngine::LoadConfig() {
         }
     }
 
+    // Load output packs
+    if (cfg.contains("output_packs") && cfg["output_packs"].is_array()) {
+        for (const auto& item : cfg["output_packs"]) {
+            std::string id = item["id"];
+            std::string name = item["name"];
+            std::string output_url = item["output_url"];
+            bool enabled = item.value("enabled", true);
+            
+            std::vector<OutputPackChannel> channels;
+            if (item.contains("channels") && item["channels"].is_array()) {
+                for (const auto& ch_item : item["channels"]) {
+                    OutputPackChannel ch;
+                    ch.input_id = ch_item.value("input_id", "");
+                    ch.program_number = ch_item.value("program_number", 0);
+                    ch.name = ch_item.value("name", "");
+                    channels.push_back(ch);
+                }
+            }
+            
+            auto pack = std::make_unique<OutputPack>(id, name, output_url, channels, enabled);
+            output_packs_[id] = std::move(pack);
+        }
+    }
+
     // Wire listeners and start enabled components
     for (auto& pair : streams_) {
         std::string input_id = pair.second->GetInputId();
@@ -2376,6 +2406,10 @@ bool StreamerEngine::LoadConfig() {
     }
 
     for (auto& pair : streams_) {
+        pair.second->Start();
+    }
+
+    for (auto& pair : output_packs_) {
         pair.second->Start();
     }
 
@@ -2449,6 +2483,26 @@ bool StreamerEngine::SaveConfig() {
         item["video_filename"] = pair.second->GetVideoFilename();
         item["transcode_preset"] = pair.second->GetTranscodePreset();
         cfg["streams"].push_back(item);
+    }
+
+    cfg["output_packs"] = json::array();
+    for (const auto& pair : output_packs_) {
+        json item;
+        item["id"] = pair.second->GetId();
+        item["name"] = pair.second->GetName();
+        item["output_url"] = pair.second->GetOutputUrl();
+        item["enabled"] = pair.second->IsEnabled();
+        
+        json ch_arr = json::array();
+        for (const auto& ch : pair.second->GetChannels()) {
+            json ch_item;
+            ch_item["input_id"] = ch.input_id;
+            ch_item["program_number"] = ch.program_number;
+            ch_item["name"] = ch.name;
+            ch_arr.push_back(ch_item);
+        }
+        item["channels"] = ch_arr;
+        cfg["output_packs"].push_back(item);
     }
 
     cfg["messages"] = json::array();
@@ -3050,3 +3104,275 @@ json StreamerEngine::GetBlockedIPsJSON() {
     }
     return arr;
 }
+
+// ==========================================
+// OutputPack Class Implementation
+// ==========================================
+OutputPack::OutputPack(const std::string& id, const std::string& name, const std::string& output_url,
+                       const std::vector<OutputPackChannel>& channels, bool enabled)
+    : id_(id), name_(name), output_url_(output_url), channels_(channels), enabled_(enabled) {}
+
+OutputPack::~OutputPack() {
+    Stop();
+}
+
+void OutputPack::Start() {
+    if (!enabled_ || running_) return;
+    running_ = true;
+    thread_ = std::thread(&OutputPack::RunLoop, this);
+    LOG_INFO("Pack de salida [" + name_ + "] iniciado.");
+}
+
+void OutputPack::Stop() {
+    if (!running_) return;
+    running_ = false;
+    
+    // Write 'q' to FFmpeg pipe to stop it cleanly if open
+    {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        if (ffmpeg_pipe_) {
+            fwrite("q\n", 1, 2, ffmpeg_pipe_);
+            fflush(ffmpeg_pipe_);
+        }
+    }
+
+    if (thread_.joinable()) {
+        thread_.join();
+    }
+    LOG_INFO("Pack de salida [" + name_ + "] detenido.");
+}
+
+void OutputPack::SetEnabled(bool enabled) {
+    if (enabled_ == enabled) return;
+    enabled_ = enabled;
+    if (enabled) {
+        Start();
+    } else {
+        Stop();
+    }
+}
+
+OutputPackStats OutputPack::GetStats() {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    OutputPackStats stats;
+    stats.id = id_;
+    stats.name = name_;
+    stats.output_url = output_url_;
+    stats.active = (ffmpeg_pipe_ != nullptr);
+    stats.bitrate_kbps = bitrate_kbps_;
+    stats.error_message = error_message_;
+    stats.channels = channels_;
+    return stats;
+}
+
+void OutputPack::RunLoop() {
+    while (running_) {
+        // Build ffmpeg command dynamically
+        std::string ffmpeg_cmd = "ffmpeg -y -hide_banner -loglevel error ";
+        
+        // Inputs
+        for (const auto& ch : channels_) {
+            std::string input_url = StreamerEngine::GetInstance().GetInputUrl(ch.input_id);
+            if (input_url.empty()) {
+                input_url = "udp://127.0.0.1:9099"; // Fallback dummy
+            }
+            ffmpeg_cmd += "-i \"" + input_url + "\" ";
+        }
+        
+        // Maps
+        int input_idx = 0;
+        for (const auto& ch : channels_) {
+            ffmpeg_cmd += "-map " + std::to_string(input_idx) + ":p:" + std::to_string(ch.program_number) + " ";
+            input_idx++;
+        }
+        
+        ffmpeg_cmd += "-c copy ";
+        
+        // Program grouping
+        int current_stream_idx = 0;
+        input_idx = 0;
+        for (const auto& ch : channels_) {
+            int num_streams = 2; // Default
+            auto input_ptr = StreamerEngine::GetInstance().GetInput(ch.input_id);
+            if (input_ptr) {
+                auto stats = input_ptr->GetStats();
+                for (const auto& prog : stats.programs) {
+                    if (prog.program_number == ch.program_number) {
+                        num_streams = prog.pids.size();
+                        break;
+                    }
+                }
+            }
+            
+            ffmpeg_cmd += "-program program_num=" + std::to_string(ch.program_number) + ":title=\"" + ch.name + "\"";
+            for (int s = 0; s < num_streams; s++) {
+                ffmpeg_cmd += ":st=" + std::to_string(current_stream_idx + s);
+            }
+            ffmpeg_cmd += " ";
+            current_stream_idx += num_streams;
+            input_idx++;
+        }
+        
+        ffmpeg_cmd += "-f mpegts \"" + output_url_ + "\"";
+        
+        LOG_INFO("Pack de salida [" + name_ + "]: Iniciando multiplexación MPTS: " + ffmpeg_cmd);
+        
+        {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            ffmpeg_pipe_ = popen(ffmpeg_cmd.c_str(), "w");
+            if (!ffmpeg_pipe_) {
+                error_message_ = "Error al iniciar popen de FFmpeg.";
+            } else {
+                error_message_ = "";
+            }
+        }
+        
+        if (!ffmpeg_pipe_) {
+            LOG_ERROR("Pack de salida [" + name_ + "]: " + error_message_);
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            continue;
+        }
+        
+        // Monitor loop
+        int loop_counter = 0;
+        bool ffmpeg_running = true;
+        
+        // Simple bitrate calculation based on input bitrates
+        double dummy_bitrate = 0.0;
+        for (const auto& ch : channels_) {
+            auto input_ptr = StreamerEngine::GetInstance().GetInput(ch.input_id);
+            if (input_ptr) {
+                auto stats = input_ptr->GetStats();
+                for (const auto& prog : stats.programs) {
+                    if (prog.program_number == ch.program_number) {
+                        dummy_bitrate += prog.bitrate_kbps;
+                        break;
+                    }
+                }
+            }
+        }
+        if (dummy_bitrate == 0.0) dummy_bitrate = 3500.0; // dummy default in case offline
+        bitrate_kbps_ = dummy_bitrate;
+        
+        while (running_ && ffmpeg_running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            loop_counter++;
+            if (loop_counter >= 50) {
+                loop_counter = 0;
+                // Check if process still alive
+                if (ffmpeg_pipe_) {
+                    if (fwrite("\n", 1, 1, ffmpeg_pipe_) != 1 || fflush(ffmpeg_pipe_) != 0) {
+                        LOG_WARN("Pack de salida [" + name_ + "]: El proceso FFmpeg de multiplexación terminó inesperadamente.");
+                        ffmpeg_running = false;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Cleanup ffmpeg
+        {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            if (ffmpeg_pipe_) {
+                fwrite("q\n", 1, 2, ffmpeg_pipe_);
+                fflush(ffmpeg_pipe_);
+                pclose(ffmpeg_pipe_);
+                ffmpeg_pipe_ = nullptr;
+            }
+            bitrate_kbps_ = 0.0;
+        }
+        
+        if (running_) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+        }
+    }
+}
+
+// ==========================================
+// StreamerEngine Helpers for OutputPack
+// ==========================================
+InputSource* StreamerEngine::GetInput(const std::string& input_id) {
+    auto it = inputs_.find(input_id);
+    if (it != inputs_.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+bool StreamerEngine::AddOutputPack(const std::string& name, const std::string& output_url,
+                                   const std::vector<OutputPackChannel>& channels, bool enabled, std::string& id_out) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    
+    std::string id = "opack_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    auto pack = std::make_unique<OutputPack>(id, name, output_url, channels, enabled);
+    id_out = id;
+    
+    output_packs_[id] = std::move(pack);
+    if (enabled) {
+        output_packs_[id]->Start();
+    }
+    
+    SaveConfig();
+    return true;
+}
+
+bool StreamerEngine::UpdateOutputPack(const std::string& id, const std::string& name, const std::string& output_url,
+                                      const std::vector<OutputPackChannel>& channels, bool enabled) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    auto it = output_packs_.find(id);
+    if (it == output_packs_.end()) return false;
+    
+    it->second->Stop();
+    
+    // Create updated pack
+    auto pack = std::make_unique<OutputPack>(id, name, output_url, channels, enabled);
+    it->second = std::move(pack);
+    
+    if (enabled) {
+        it->second->Start();
+    }
+    
+    SaveConfig();
+    return true;
+}
+
+bool StreamerEngine::DeleteOutputPack(const std::string& id) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    auto it = output_packs_.find(id);
+    if (it == output_packs_.end()) return false;
+    
+    it->second->Stop();
+    output_packs_.erase(it);
+    
+    SaveConfig();
+    return true;
+}
+
+json StreamerEngine::GetOutputPacksJSON() {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    json arr = json::array();
+    for (const auto& pair : output_packs_) {
+        auto stats = pair.second->GetStats();
+        json item;
+        item["id"] = stats.id;
+        item["name"] = stats.name;
+        item["output_url"] = stats.output_url;
+        item["enabled"] = pair.second->IsEnabled();
+        item["active"] = stats.active;
+        item["bitrate_kbps"] = stats.bitrate_kbps;
+        item["error_message"] = stats.error_message;
+        
+        json ch_arr = json::array();
+        for (const auto& ch : stats.channels) {
+            json ch_item;
+            ch_item["input_id"] = ch.input_id;
+            ch_item["program_number"] = ch.program_number;
+            ch_item["name"] = ch.name;
+            ch_arr.push_back(ch_item);
+        }
+        item["channels"] = ch_arr;
+        arr.push_back(item);
+    }
+    return arr;
+}
+

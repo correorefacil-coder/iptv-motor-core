@@ -1,6 +1,8 @@
 // State variables
 let inputs = [];
 let streams = [];
+let outputPacks = [];
+let currentViewMode = localStorage.getItem('currentViewMode') || 'complete';
 let systemStatus = {};
 let logsInterval = null;
 let settingsLogsInterval = null;
@@ -32,6 +34,7 @@ const countStreamsTotal = document.getElementById('count-streams-total');
 
 const streamsGrid = document.getElementById('streams-grid');
 const inputsContainer = document.getElementById('inputs-container');
+const outputPacksContainer = document.getElementById('output-packs-container');
 
 // Modals
 const modalInput = document.getElementById('modal-input');
@@ -39,10 +42,12 @@ const modalStream = document.getElementById('modal-stream');
 const modalProbe = document.getElementById('modal-probe');
 const modalSettings = document.getElementById('modal-settings');
 const modalFs = document.getElementById('modal-fs');
+const modalOutputPack = document.getElementById('modal-output-pack');
 
 // Forms
 const formInput = document.getElementById('form-input');
 const formStream = document.getElementById('form-stream');
+const formOutputPack = document.getElementById('form-output-pack');
 
 // File Explorer DOM Elements
 const btnBrowseFiles = document.getElementById('btn-browse-files');
@@ -179,89 +184,242 @@ function getPlayableUrl(dest) {
     return dest.url;
 }
 
+function changeViewMode(mode) {
+    currentViewMode = mode;
+    localStorage.setItem('currentViewMode', mode);
+    
+    // Update active button state
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    const activeBtn = document.getElementById(`view-btn-${mode}`);
+    if (activeBtn) activeBtn.classList.add('active');
+    
+    renderStreams();
+}
+
+function toggleSimpleMenu(streamId, event) {
+    event.stopPropagation();
+    // Close other menus
+    document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
+        if (el.id !== `menu-${streamId}`) {
+            el.style.display = 'none';
+        }
+    });
+    const menu = document.getElementById(`menu-${streamId}`);
+    if (menu) {
+        menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    }
+}
+
+// Global click handler to close menus
+document.addEventListener('click', () => {
+    document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
+        el.style.display = 'none';
+    });
+});
+
 function renderStreams() {
     if (streams.length === 0) {
         streamsGrid.innerHTML = `<div class="no-data">No hay canales configurados. Haz clic en "Nuevo Canal" para empezar.</div>`;
         return;
     }
 
-    streamsGrid.innerHTML = '';
-    streams.forEach(stream => {
-        // Find input name
-        const inputSource = inputs.find(i => i.id === stream.input_id);
-        const inputName = inputSource ? inputSource.name : 'Desconocido';
+    if (currentViewMode === 'simple') {
+        streamsGrid.innerHTML = '';
+        streamsGrid.className = 'streams-grid view-simple';
+        streams.forEach(stream => {
+            const inputSource = inputs.find(i => i.id === stream.input_id);
+            const card = document.createElement('div');
+            card.className = `stream-card view-simple-card ${stream.active ? 'active' : ''} ${stream.error_message ? 'error-state' : ''}`;
+            card.id = `card-${stream.id}`;
 
-        const card = document.createElement('div');
-        card.className = `stream-card ${stream.active ? 'active' : ''} ${stream.error_message ? 'error-state' : ''}`;
-        card.id = `card-${stream.id}`;
+            let outputsMenuHtml = '';
+            if (stream.outputs && stream.outputs.length > 0) {
+                stream.outputs.forEach(dest => {
+                    const playableUrl = getPlayableUrl(dest);
+                    outputsMenuHtml += `<button onclick="copyVlcUrl('${playableUrl}', event)">Copiar ${dest.type.toUpperCase()}</button>`;
+                });
+            } else {
+                outputsMenuHtml += `<button onclick="copyVlcUrl('${stream.output_url}', event)">Copiar URL</button>`;
+            }
 
-        const isVideoPackStream = inputSource && inputSource.is_video_pack;
-        const channelNumLabel = isVideoPackStream ? `Archivo: ${stream.video_filename || 'Sin seleccionar'}` : `Programa #${stream.program_number}`;
+            card.innerHTML = `
+                <div class="simple-card-top">
+                    <span class="simple-card-name" title="${stream.name}">${stream.name}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="status-indicator" title="${stream.active ? 'Transmitiendo' : 'Inactivo'}"></span>
+                        ${currentUser && currentUser.role === 'Consulta' ? '' : `
+                        <button class="simple-menu-btn" onclick="toggleSimpleMenu('${stream.id}', event)">•••</button>
+                        <div class="simple-menu-dropdown" id="menu-${stream.id}">
+                            <button onclick="toggleStream('${stream.id}', ${!stream.enabled})">${stream.enabled ? 'Pausar' : 'Activar'}</button>
+                            <button onclick="editStream('${stream.id}')">Editar</button>
+                            ${currentUser && currentUser.role === 'Programadores' ? '' : `<button class="btn-danger-text" onclick="deleteStream('${stream.id}')">Eliminar</button>`}
+                            <hr style="border: none; border-top: 1px solid var(--border-color); margin: 4px 0;">
+                            ${outputsMenuHtml}
+                        </div>
+                        `}
+                    </div>
+                </div>
+                <div class="simple-card-bitrate">
+                    ${formatBitrate(stream.bitrate_kbps)}
+                </div>
+            `;
+            streamsGrid.appendChild(card);
+        });
+    } else if (currentViewMode === 'list') {
+        streamsGrid.className = 'streams-list-container';
+        let rowsHtml = '';
+        streams.forEach(stream => {
+            const inputSource = inputs.find(i => i.id === stream.input_id);
+            const inputName = inputSource ? inputSource.name : 'Desconocido';
+            
+            let outputsHtml = '';
+            if (stream.outputs && stream.outputs.length > 0) {
+                stream.outputs.forEach(dest => {
+                    const playableUrl = getPlayableUrl(dest);
+                    const typeBadge = `<span class="badge-type">${dest.type.toUpperCase()}</span>`;
+                    outputsHtml += `<div style="margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                        ${typeBadge} 
+                        <code style="font-family: var(--font-mono); font-size:12px; color: var(--text-secondary);">${playableUrl}</code> 
+                        <button class="copy-url-btn" onclick="copyVlcUrl('${playableUrl}', event)" style="background:none; border:none; cursor:pointer;">📋</button>
+                    </div>`;
+                });
+            } else {
+                outputsHtml += `<div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="badge-type">UDP/SRT</span> 
+                    <code style="font-family: var(--font-mono); font-size:12px; color: var(--text-secondary);">${stream.output_url}</code> 
+                    <button class="copy-url-btn" onclick="copyVlcUrl('${stream.output_url}', event)" style="background:none; border:none; cursor:pointer;">📋</button>
+                </div>`;
+            }
+            
+            const isVideoPackStream = inputSource && inputSource.is_video_pack;
+            const channelNumLabel = isVideoPackStream ? `Archivo: ${stream.video_filename || 'Sin seleccionar'}` : `Prog #${stream.program_number}`;
 
-        let outputsHtml = '';
-        if (stream.outputs && stream.outputs.length > 0) {
-            stream.outputs.forEach(dest => {
-                const playableUrl = getPlayableUrl(dest);
-                const typeBadge = `<span class="badge-type">${dest.type.toUpperCase()}</span>`;
-                const ifaceText = dest.output_interface ? ` (${dest.output_interface})` : '';
+            const activeBadge = stream.active ? 
+                `<span class="badge-type" style="background:rgba(16,185,129,0.15); color:var(--green-neon); border-color:rgba(16,185,129,0.3)">ACTIVO</span>` : 
+                `<span class="badge-type" style="background:rgba(255,255,255,0.05); color:var(--text-muted); border-color:var(--border-color)">INACTIVO</span>`;
+
+            rowsHtml += `
+            <tr>
+                <td>${activeBadge}</td>
+                <td>
+                    <div style="font-weight:600; font-size:14px; color:#fff;">${stream.name}</div>
+                    <div class="form-help" style="font-size:11px;">${channelNumLabel}</div>
+                </td>
+                <td>${inputName}</td>
+                <td style="color:var(--green-neon); font-family:var(--font-mono); font-weight:600;">${formatBitrate(stream.bitrate_kbps)}</td>
+                <td>${outputsHtml}</td>
+                <td>
+                    ${currentUser && currentUser.role === 'Consulta' ? '' : `
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn btn-secondary btn-small" onclick="toggleStream('${stream.id}', ${!stream.enabled})">
+                            ${stream.enabled ? 'Pausar' : 'Activar'}
+                        </button>
+                        <button class="btn btn-secondary btn-small" onclick="editStream('${stream.id}')">Editar</button>
+                        ${currentUser && currentUser.role === 'Programadores' ? '' : `<button class="btn btn-danger btn-small" onclick="deleteStream('${stream.id}')">Eliminar</button>`}
+                    </div>
+                    `}
+                </td>
+            </tr>`;
+        });
+
+        streamsGrid.innerHTML = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 80px;">Estado</th>
+                    <th>Canal</th>
+                    <th>Origen</th>
+                    <th style="width: 120px;">Bitrate</th>
+                    <th>Salidas</th>
+                    <th style="width: 200px;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml}
+            </tbody>
+        </table>`;
+    } else {
+        streamsGrid.innerHTML = '';
+        streamsGrid.className = 'streams-grid view-complete';
+        streams.forEach(stream => {
+            // Find input name
+            const inputSource = inputs.find(i => i.id === stream.input_id);
+            const inputName = inputSource ? inputSource.name : 'Desconocido';
+
+            const card = document.createElement('div');
+            card.className = `stream-card ${stream.active ? 'active' : ''} ${stream.error_message ? 'error-state' : ''}`;
+            card.id = `card-${stream.id}`;
+
+            const isVideoPackStream = inputSource && inputSource.is_video_pack;
+            const channelNumLabel = isVideoPackStream ? `Archivo: ${stream.video_filename || 'Sin seleccionar'}` : `Programa #${stream.program_number}`;
+
+            let outputsHtml = '';
+            if (stream.outputs && stream.outputs.length > 0) {
+                stream.outputs.forEach(dest => {
+                    const playableUrl = getPlayableUrl(dest);
+                    const typeBadge = `<span class="badge-type">${dest.type.toUpperCase()}</span>`;
+                    const ifaceText = dest.output_interface ? ` (${dest.output_interface})` : '';
+                    outputsHtml += `
+                    <div class="card-path" style="margin-top: 4px;">
+                        <span class="path-lbl" style="min-width: 45px; display: inline-block;">${typeBadge}</span>
+                        <span class="path-val" title="${playableUrl}">
+                            ${playableUrl}${ifaceText}
+                            <button class="copy-url-btn" title="Copiar URL para reproductor" onclick="copyVlcUrl('${playableUrl}', event)">📋</button>
+                        </span>
+                    </div>`;
+                });
+            } else {
+                const typeBadge = `<span class="badge-type">UDP/SRT</span>`;
+                const ifaceText = stream.output_interface ? ` (${stream.output_interface})` : '';
                 outputsHtml += `
                 <div class="card-path" style="margin-top: 4px;">
                     <span class="path-lbl" style="min-width: 45px; display: inline-block;">${typeBadge}</span>
-                    <span class="path-val" title="${playableUrl}">
-                        ${playableUrl}${ifaceText}
-                        <button class="copy-url-btn" title="Copiar URL para reproductor" onclick="copyVlcUrl('${playableUrl}', event)">📋</button>
+                    <span class="path-val" title="${stream.output_url}">
+                        ${stream.output_url}${ifaceText}
+                        <button class="copy-url-btn" title="Copiar URL para reproductor" onclick="copyVlcUrl('${stream.output_url}', event)">📋</button>
                     </span>
                 </div>`;
-            });
-        } else {
-            const typeBadge = `<span class="badge-type">UDP/SRT</span>`;
-            const ifaceText = stream.output_interface ? ` (${stream.output_interface})` : '';
-            outputsHtml += `
-            <div class="card-path" style="margin-top: 4px;">
-                <span class="path-lbl" style="min-width: 45px; display: inline-block;">${typeBadge}</span>
-                <span class="path-val" title="${stream.output_url}">
-                    ${stream.output_url}${ifaceText}
-                    <button class="copy-url-btn" title="Copiar URL para reproductor" onclick="copyVlcUrl('${stream.output_url}', event)">📋</button>
-                </span>
-            </div>`;
-        }
+            }
 
-        card.innerHTML = `
-            <div class="card-header">
-                <div class="channel-info">
-                    <span class="channel-num">${channelNumLabel}</span>
-                    <span class="channel-name" title="${stream.name}">${stream.name}</span>
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="channel-info">
+                        <span class="channel-num">${channelNumLabel}</span>
+                        <span class="channel-name" title="${stream.name}">${stream.name}</span>
+                    </div>
+                    <span class="status-indicator" title="${stream.active ? 'Transmitiendo' : 'Inactivo'}"></span>
                 </div>
-                <span class="status-indicator" title="${stream.active ? 'Transmitiendo' : 'Inactivo'}"></span>
-            </div>
-            
-            <div class="card-middle">
-                <div class="bitrate-value">${formatBitrate(stream.bitrate_kbps).split(' ')[0]}<span class="bitrate-unit">${formatBitrate(stream.bitrate_kbps).split(' ')[1]}</span></div>
-            </div>
-            
-            <div class="card-bottom">
-                <div class="card-path">
-                    <span class="path-lbl">Origen:</span>
-                    <span class="path-val" title="${inputName}">${inputName}</span>
+                
+                <div class="card-middle">
+                    <div class="bitrate-value">${formatBitrate(stream.bitrate_kbps).split(' ')[0]}<span class="bitrate-unit">${formatBitrate(stream.bitrate_kbps).split(' ')[1]}</span></div>
                 </div>
-                <div style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
-                    ${outputsHtml}
+                
+                <div class="card-bottom">
+                    <div class="card-path">
+                        <span class="path-lbl">Origen:</span>
+                        <span class="path-val" title="${inputName}">${inputName}</span>
+                    </div>
+                    <div style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
+                        ${outputsHtml}
+                    </div>
+                    ${stream.error_message ? `<div class="card-path error" style="color:var(--red-alert); font-size:11px;">Error: ${stream.error_message}</div>` : ''}
                 </div>
-                ${stream.error_message ? `<div class="card-path error" style="color:var(--red-alert); font-size:11px;">Error: ${stream.error_message}</div>` : ''}
-            </div>
 
-            ${currentUser && currentUser.role === 'Consulta' ? '' : `
-            <div class="card-actions">
-                <button class="btn btn-secondary btn-small" onclick="toggleStream('${stream.id}', ${!stream.enabled})">
-                    ${stream.enabled ? 'Pausar' : 'Activar'}
-                </button>
-                <button class="btn btn-primary btn-small" onclick="editStream('${stream.id}')">Editar</button>
-                ${currentUser && currentUser.role === 'Programadores' ? '' : `<button class="btn btn-danger btn-small" onclick="deleteStream('${stream.id}')">Eliminar</button>`}
-            </div>
-            `}
-        `;
-        streamsGrid.appendChild(card);
-    });
+                ${currentUser && currentUser.role === 'Consulta' ? '' : `
+                <div class="card-actions">
+                    <button class="btn btn-secondary btn-small" onclick="toggleStream('${stream.id}', ${!stream.enabled})">
+                        ${stream.enabled ? 'Pausar' : 'Activar'}
+                    </button>
+                    <button class="btn btn-primary btn-small" onclick="editStream('${stream.id}')">Editar</button>
+                    ${currentUser && currentUser.role === 'Programadores' ? '' : `<button class="btn btn-danger btn-small" onclick="deleteStream('${stream.id}')">Eliminar</button>`}
+                </div>
+                `}
+            `;
+            streamsGrid.appendChild(card);
+        });
+    }
 }
 
 function renderInputs() {
@@ -2103,7 +2261,9 @@ async function init() {
     // Initial fetch
     await fetchInputs();
     await fetchStreams();
+    await fetchOutputPacks();
     await updateStats();
+    changeViewMode(currentViewMode);
 
     // Start background pollers
     setInterval(async () => {
@@ -2111,6 +2271,7 @@ async function init() {
         // Silent updates in background
         await fetchInputs();
         await fetchStreams();
+        await fetchOutputPacks();
     }, 1000);
 }
 
@@ -2284,7 +2445,213 @@ function copyVlcUrl(url, event) {
         console.error('No se pudo copiar la URL: ', err);
     });
 }
+
+async function fetchOutputPacks() {
+    const data = await apiCall('/api/output_packs');
+    if (data) {
+        outputPacks = data;
+        renderOutputPacks();
+    }
+}
+
+function renderOutputPacks() {
+    if (!outputPacksContainer) return;
+    if (outputPacks.length === 0) {
+        outputPacksContainer.innerHTML = `<div class="no-data">No hay Packs de Salida configurados. Haz clic en "+ Pack de Salida" para empezar.</div>`;
+        return;
+    }
+
+    outputPacksContainer.innerHTML = '';
+    outputPacks.forEach(pack => {
+        const card = document.createElement('div');
+        card.className = `input-pack-card ${pack.active ? 'connected' : 'offline'} ${!pack.enabled ? 'disabled' : ''}`;
+        card.id = `opack-${pack.id}`;
+
+        const channelsList = pack.channels.map(ch => {
+            const inp = inputs.find(i => i.id === ch.input_id);
+            const inpName = inp ? inp.name : 'Desconocido';
+            return `<span class="badge-type" style="margin-top: 4px; display: inline-block;">${inpName} - Prog #${ch.program_number} (${ch.name})</span>`;
+        }).join(' ');
+
+        card.innerHTML = `
+            <div class="pack-info">
+                <div class="pack-name-row">
+                    <span class="pack-name" style="font-weight:600; font-size:16px;">${pack.name}</span>
+                    <span class="pack-status-badge">${pack.active ? 'Transmitiendo' : (pack.enabled ? 'Iniciando...' : 'Deshabilitado')}</span>
+                </div>
+                <span class="pack-url" title="${pack.output_url}" style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted); display:block; margin-top:4px;">Destino: <code>${pack.output_url}</code></span>
+                <div style="margin-top: 8px;">
+                    <span class="bw-label" style="margin-bottom: 4px; display:block; font-size:10px; text-transform:uppercase; color:var(--text-muted);">Canales Incluidos:</span>
+                    ${channelsList}
+                </div>
+            </div>
+
+            <div class="pack-metrics">
+                <div class="pack-bitrate">
+                    <span class="pack-br-label" style="display:block; font-size:11px; color:var(--text-muted);">Ancho de banda</span>
+                    <span class="pack-br-val" style="font-size:18px; font-weight:600;">${formatBitrate(pack.bitrate_kbps || 0)}</span>
+                </div>
+                ${currentUser && currentUser.role === 'Consulta' ? '' : `
+                <div class="pack-actions" style="display:flex; gap:8px;">
+                    <button class="btn btn-secondary btn-small" onclick="toggleOutputPack('${pack.id}', ${!pack.enabled})">
+                        ${pack.enabled ? 'Pausar' : 'Activar'}
+                    </button>
+                    <button class="btn btn-secondary btn-small" onclick="editOutputPack('${pack.id}')">Editar</button>
+                    ${currentUser && currentUser.role === 'Programadores' ? '' : `<button class="btn btn-danger btn-small" onclick="deleteOutputPack('${pack.id}')">Eliminar</button>`}
+                </div>
+                `}
+            </div>
+        `;
+        outputPacksContainer.appendChild(card);
+    });
+}
+
+async function toggleOutputPack(id, enabled) {
+    const pack = outputPacks.find(p => p.id === id);
+    if (!pack) return;
+    
+    const payload = Object.assign({}, pack, { enabled });
+    const res = await apiCall(`/api/output_packs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+    });
+    if (res && res.success) {
+        fetchOutputPacks();
+    } else {
+        alert('Error al cambiar estado del pack: ' + (res ? res.error : 'Desconocido'));
+    }
+}
+
+async function deleteOutputPack(id) {
+    if (confirm('¿Estás seguro de que deseas eliminar este Pack de Salida?')) {
+        const res = await apiCall(`/api/output_packs/${id}`, {
+            method: 'DELETE'
+        });
+        if (res && res.success) {
+            fetchOutputPacks();
+        } else {
+            alert('Error al eliminar pack: ' + (res ? res.error : 'Desconocido'));
+        }
+    }
+}
+
+function populateOutputPackChannelsList() {
+    let html = '';
+    inputs.forEach(input => {
+        if (input.programs && input.programs.length > 0) {
+            html += `<div style="font-weight: 600; font-size:12px; color: var(--accent); margin-top: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">${input.name}</div>`;
+            input.programs.forEach(prog => {
+                html += `
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); padding-left: 8px;">
+                    <input type="checkbox" class="opack-channel-checkbox" data-input-id="${input.id}" data-prog-num="${prog.program_number}" data-name="${prog.name}" id="chk-${input.id}-${prog.program_number}">
+                    <label for="chk-${input.id}-${prog.program_number}" style="cursor: pointer; user-select:none;">Prog #${prog.program_number} - ${prog.name}</label>
+                </div>`;
+            });
+        }
+    });
+    if (!html) {
+        html = '<span class="form-help" style="font-style: italic;">No hay canales o packs de entrada detectados.</span>';
+    }
+    document.getElementById('opack-channels-list').innerHTML = html;
+}
+
+document.getElementById('btn-new-output-pack').addEventListener('click', () => {
+    document.getElementById('opack-id').value = '';
+    formOutputPack.reset();
+    document.getElementById('opack-enabled').checked = true;
+    populateOutputPackChannelsList();
+    document.getElementById('modal-opack-title').textContent = 'Nuevo Pack de Salida';
+    modalOutputPack.style.display = 'block';
+});
+
+document.getElementById('btn-cancel-output-pack').addEventListener('click', () => {
+    modalOutputPack.style.display = 'none';
+});
+document.getElementById('close-modal-output-pack').addEventListener('click', () => {
+    modalOutputPack.style.display = 'none';
+});
+
+function editOutputPack(id) {
+    const pack = outputPacks.find(p => p.id === id);
+    if (!pack) return;
+
+    document.getElementById('opack-id').value = pack.id;
+    document.getElementById('opack-name').value = pack.name;
+    document.getElementById('opack-url').value = pack.output_url;
+    document.getElementById('opack-enabled').checked = pack.enabled;
+
+    populateOutputPackChannelsList();
+
+    // Check selected channels
+    pack.channels.forEach(ch => {
+        const checkbox = document.querySelector(`.opack-channel-checkbox[data-input-id="${ch.input_id}"][data-prog-num="${ch.program_number}"]`);
+        if (checkbox) {
+            checkbox.checked = true;
+        }
+    });
+
+    document.getElementById('modal-opack-title').textContent = 'Editar Pack de Salida';
+    modalOutputPack.style.display = 'block';
+}
+
+formOutputPack.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('opack-id').value;
+    const name = document.getElementById('opack-name').value;
+    const output_url = document.getElementById('opack-url').value.trim();
+    const enabled = document.getElementById('opack-enabled').checked;
+
+    // Collect selected channels
+    const channels = [];
+    document.querySelectorAll('.opack-channel-checkbox:checked').forEach(chk => {
+        channels.push({
+            input_id: chk.getAttribute('data-input-id'),
+            program_number: parseInt(chk.getAttribute('data-prog-num')),
+            name: chk.getAttribute('data-name')
+        });
+    });
+
+    if (channels.length === 0) {
+        alert('Por favor selecciona al menos un canal para incluir en el pack.');
+        return;
+    }
+
+    const payload = {
+        name,
+        output_url,
+        enabled,
+        channels
+    };
+
+    let res;
+    if (id) {
+        res = await apiCall(`/api/output_packs/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+    } else {
+        res = await apiCall('/api/output_packs', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    if (res && res.success) {
+        modalOutputPack.style.display = 'none';
+        fetchOutputPacks();
+    } else {
+        alert('Error al guardar el Pack de Salida: ' + (res ? res.error : 'Desconocido'));
+    }
+});
+
+// Set window global properties for inline onclicks
+window.changeViewMode = changeViewMode;
+window.toggleSimpleMenu = toggleSimpleMenu;
+window.toggleOutputPack = toggleOutputPack;
+window.editOutputPack = editOutputPack;
+window.deleteOutputPack = deleteOutputPack;
 window.copyVlcUrl = copyVlcUrl;
 
 // Run initialisation
 init();
+

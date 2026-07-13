@@ -310,6 +310,59 @@ private:
     std::mutex sleep_mutex_;
 };
 
+struct OutputPackChannel {
+    std::string input_id;
+    int program_number;
+    std::string name;
+};
+
+struct OutputPackStats {
+    std::string id;
+    std::string name;
+    std::string output_url;
+    bool active = false;
+    double bitrate_kbps = 0.0;
+    std::string error_message = "";
+    std::vector<OutputPackChannel> channels;
+};
+
+class OutputPack {
+public:
+    OutputPack(const std::string& id, const std::string& name, const std::string& output_url,
+               const std::vector<OutputPackChannel>& channels, bool enabled);
+    ~OutputPack();
+
+    void Start();
+    void Stop();
+
+    std::string GetId() const { return id_; }
+    std::string GetName() const { return name_; }
+    std::string GetOutputUrl() const { return output_url_; }
+    const std::vector<OutputPackChannel>& GetChannels() const { return channels_; }
+    bool IsEnabled() const { return enabled_; }
+    void SetEnabled(bool enabled);
+    bool IsRunning() const { return running_; }
+
+    OutputPackStats GetStats();
+
+private:
+    void RunLoop();
+
+    std::string id_;
+    std::string name_;
+    std::string output_url_;
+    std::vector<OutputPackChannel> channels_;
+    std::atomic<bool> enabled_{false};
+    std::atomic<bool> running_{false};
+
+    std::thread thread_;
+    FILE* ffmpeg_pipe_ = nullptr;
+    std::string error_message_ = "";
+    std::mutex stats_mutex_;
+    std::atomic<double> bitrate_kbps_{0.0};
+};
+
+
 // Orchestrator for all input and output streams
 class StreamerEngine {
 public:
@@ -350,6 +403,16 @@ public:
 
     bool IsInputVideoPack(const std::string& input_id);
     std::string GetInputUrl(const std::string& input_id);
+    InputSource* GetInput(const std::string& input_id);
+
+    // Output Packs Management
+    bool AddOutputPack(const std::string& name, const std::string& output_url,
+                       const std::vector<OutputPackChannel>& channels, bool enabled, std::string& id_out);
+    bool UpdateOutputPack(const std::string& id, const std::string& name, const std::string& output_url,
+                          const std::vector<OutputPackChannel>& channels, bool enabled);
+    bool DeleteOutputPack(const std::string& id);
+    json GetOutputPacksJSON();
+
 
     // Global Settings
     std::string GetOutputInterface();
@@ -393,6 +456,7 @@ private:
 
     std::map<std::string, std::unique_ptr<InputSource>> inputs_;
     std::map<std::string, std::unique_ptr<OutputStream>> streams_;
+    std::map<std::string, std::unique_ptr<OutputPack>> output_packs_;
     std::vector<ScheduledMessage> messages_;
     std::vector<HLSSession> hls_sessions_;
     std::vector<std::string> blocked_ips_;

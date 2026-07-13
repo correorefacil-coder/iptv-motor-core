@@ -795,7 +795,7 @@ void OutputStream::OutputLoopVideoPack() {
                 
                 ffmpeg_cmd += "-c:v " + codec + " ";
                 if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                    ffmpeg_cmd += "-preset p1 -tune ll -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+                    ffmpeg_cmd += "-preset p4 -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
                 } else if (codec == "libx264" || codec == "libx265") {
                     ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
                 }
@@ -1294,7 +1294,7 @@ void OutputStream::OutputLoop() {
                         
                         ffmpeg_cmd += "-c:v " + codec + " ";
                         if (codec == "h264_nvenc" || codec == "hevc_nvenc") {
-                            ffmpeg_cmd += "-preset p1 -tune ll -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
+                            ffmpeg_cmd += "-preset p4 -tune hq -g 60 -forced-idr 1 -aud 1 -flags:v -global_header ";
                         } else if (codec == "libx264" || codec == "libx265") {
                             ffmpeg_cmd += "-preset ultrafast -tune zerolatency -g 60 -flags:v -global_header ";
                         }

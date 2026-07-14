@@ -2733,13 +2733,12 @@ function editOutputPack(id) {
     if (pack.channels && pack.channels.length > 0) {
         pack.channels.forEach(ch => {
             try {
-                // Find element using element list iteration instead of complex querySelector which can throw parser errors
-                const checkboxes = document.querySelectorAll('.opack-channel-checkbox');
-                checkboxes.forEach(cb => {
-                    if (cb.getAttribute('data-input-id') === ch.input_id && parseInt(cb.getAttribute('data-prog-num')) === ch.program_number) {
-                        cb.checked = true;
-                    }
-                });
+                // Escape input_id in selector to prevent syntax errors with weird characters
+                const escapedInputId = CSS.escape(ch.input_id);
+                const checkbox = document.querySelector(`.opack-channel-checkbox[data-input-id="${escapedInputId}"][data-prog-num="${ch.program_number}"]`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
             } catch (err) {
                 console.warn("No se pudo preseleccionar canal filtrado:", ch, err);
             }

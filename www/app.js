@@ -1082,9 +1082,34 @@ formStream.addEventListener('submit', async (e) => {
         });
     }
 
-    if (outputs.length === 0) {
         alert('Por favor agrega al menos un destino de salida.');
         return;
+    }
+
+    // URL Syntax Validation
+    for (const out of outputs) {
+        const url = out.url.trim();
+        if (url.startsWith('srt@') || url.startsWith('udp@') || url.startsWith('rtp@')) {
+            alert(`Sintaxis inválida en la URL de salida: "${url}".\n\nNo uses "@" antes del protocolo (ej. usa "srt://..." en lugar de "srt@://...").`);
+            return;
+        }
+        if (url.startsWith('srt://')) {
+            // Check if it's listener mode missing mode=listener
+            if (url.includes('srt://:') && !url.includes('mode=listener')) {
+                alert(`Dirección SRT de escucha detectada: "${url}".\n\nSi deseas escuchar localmente en un puerto, la sintaxis correcta debe incluir "?mode=listener" (ej. "srt://:51111?mode=listener").`);
+                return;
+            }
+        }
+        // Must start with a valid scheme
+        if (!url.startsWith('srt://') && !url.startsWith('udp://') && !url.startsWith('rtp://') && !url.startsWith('rtmp://') && !url.startsWith('hls://') && !url.startsWith('/')) {
+            // Check if user just entered a port
+            if (/^\d+$/.test(url) || url.startsWith(':')) {
+                alert(`Especifica un protocolo válido en la URL de salida (ej. "srt://:51111?mode=listener" o "udp://239.1.1.1:51111").\n\nNo introduzcas solo el puerto.`);
+            } else {
+                alert(`El protocolo o dirección en "${url}" no es compatible o no es válido.`);
+            }
+            return;
+        }
     }
 
     const payload = {
@@ -2352,10 +2377,10 @@ async function init() {
         applyRoleRestrictions();
     }
 
-    // Initial fetch
-    await fetchInputs();
-    await fetchStreams();
-    await fetchOutputPacks();
+    // Initial fetch (forces initial rendering)
+    await fetchInputs(true);
+    await fetchStreams(true);
+    await fetchOutputPacks(true);
     await updateStats();
     // Restore saved filter state
     changeStreamFilter(currentStreamFilter);
@@ -2731,6 +2756,26 @@ formOutputPack.addEventListener('submit', async (e) => {
 
     if (channels.length === 0) {
         alert('Por favor selecciona al menos un canal para incluir en el pack.');
+        return;
+    }
+
+    // URL Syntax Validation
+    if (output_url.startsWith('srt@') || output_url.startsWith('udp@') || output_url.startsWith('rtp@')) {
+        alert(`Sintaxis inválida en la URL de salida: "${output_url}".\n\nNo uses "@" antes del protocolo (ej. usa "srt://..." en lugar de "srt@://...").`);
+        return;
+    }
+    if (output_url.startsWith('srt://')) {
+        if (output_url.includes('srt://:') && !output_url.includes('mode=listener')) {
+            alert(`Dirección SRT de escucha detectada: "${output_url}".\n\nSi deseas escuchar localmente en un puerto, la sintaxis correcta debe incluir "?mode=listener" (ej. "srt://:51111?mode=listener").`);
+            return;
+        }
+    }
+    if (!output_url.startsWith('srt://') && !output_url.startsWith('udp://') && !output_url.startsWith('rtp://') && !output_url.startsWith('rtmp://')) {
+        if (/^\d+$/.test(output_url) || output_url.startsWith(':')) {
+            alert(`Especifica un protocolo válido en la URL de salida (ej. "srt://:51111?mode=listener" o "udp://239.1.1.1:51111").\n\nNo introduzcas solo el puerto.`);
+        } else {
+            alert(`El protocolo o dirección en "${output_url}" no es compatible o no es válido para el Pack de Salida.`);
+        }
         return;
     }
 

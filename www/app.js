@@ -2726,13 +2726,17 @@ function editOutputPack(id) {
 
     populateOutputPackChannelsList();
 
-    // Check selected channels
-    pack.channels.forEach(ch => {
-        const checkbox = document.querySelector(`.opack-channel-checkbox[data-input-id="${ch.input_id}"][data-prog-num="${ch.program_number}"]`);
-        if (checkbox) {
-            checkbox.checked = true;
-        }
-    });
+    // Check selected channels safely
+    if (pack.channels && pack.channels.length > 0) {
+        pack.channels.forEach(ch => {
+            const checkboxes = document.querySelectorAll('.opack-channel-checkbox');
+            checkboxes.forEach(cb => {
+                if (cb.getAttribute('data-input-id') === ch.input_id && parseInt(cb.getAttribute('data-prog-num')) === ch.program_number) {
+                    cb.checked = true;
+                }
+            });
+        });
+    }
 
     document.getElementById('modal-opack-title').textContent = 'Editar Pack de Salida';
     modalOutputPack.style.display = 'block';

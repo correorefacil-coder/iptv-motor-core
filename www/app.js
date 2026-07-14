@@ -3,6 +3,7 @@ let inputs = [];
 let streams = [];
 let outputPacks = [];
 let currentViewMode = localStorage.getItem('currentViewMode') || 'complete';
+let currentStreamFilter = localStorage.getItem('currentStreamFilter') || 'all';
 let systemStatus = {};
 let logsInterval = null;
 let settingsLogsInterval = null;
@@ -229,35 +230,79 @@ function changeViewMode(mode) {
 
 function toggleSimpleMenu(streamId, event) {
     event.stopPropagation();
-    // Close other menus
-    document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
-        if (el.id !== `menu-${streamId}`) {
-            el.style.display = 'none';
-        }
-    });
+    
     const menu = document.getElementById(`menu-${streamId}`);
-    if (menu) {
-        menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    if (!menu) return;
+    
+    const isOpen = menu.style.display === 'block';
+    
+    // Close all menus first
+    document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
+        el.style.display = 'none';
+    });
+    
+    if (!isOpen) {
+        // Position the menu relative to the button that was clicked, using viewport coords
+        const btn = event.currentTarget || event.target;
+        const rect = btn.getBoundingClientRect();
+        menu.style.top = (rect.bottom + 4) + 'px';
+        // Align to the right edge of the button
+        const menuWidth = 160;
+        const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+        menu.style.left = Math.max(8, left) + 'px';
+        menu.style.display = 'block';
     }
 }
 
-// Global click handler to close menus
-document.addEventListener('click', () => {
+// Global click handler to close simple dropdowns
+// (uses capture=false so it fires AFTER button stopPropagation)
+document.addEventListener('click', (e) => {
+    // Don't close if the click came from inside a simple-menu-dropdown or its button
+    if (e.target.closest && (e.target.closest('.simple-menu-dropdown') || e.target.closest('.simple-menu-btn'))) {
+        return;
+    }
     document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
         el.style.display = 'none';
     });
 });
 
+function changeStreamFilter(filter) {
+    currentStreamFilter = filter;
+    localStorage.setItem('currentStreamFilter', filter);
+    // Update active filter button
+    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+    const activeBtn = document.getElementById(`filter-btn-${filter}`);
+    if (activeBtn) activeBtn.classList.add('active');
+    renderStreams();
+}
+
 function renderStreams() {
-    if (streams.length === 0) {
-        streamsGrid.innerHTML = `<div class="no-data">No hay canales configurados. Haz clic en "Nuevo Canal" para empezar.</div>`;
+    // Sort alphabetically by name
+    const sortedStreams = [...streams].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    
+    // Apply filter
+    let filtered;
+    if (currentStreamFilter === 'active') {
+        filtered = sortedStreams.filter(s => s.enabled !== false);
+    } else if (currentStreamFilter === 'inactive') {
+        filtered = sortedStreams.filter(s => s.enabled === false);
+    } else {
+        filtered = sortedStreams;
+    }
+
+    if (filtered.length === 0) {
+        const msg = streams.length === 0
+            ? 'No hay canales configurados. Haz clic en "+ Nuevo Canal" para empezar.'
+            : `No hay canales ${currentStreamFilter === 'active' ? 'activos' : 'inactivos'}.`;
+        streamsGrid.className = 'streams-grid';
+        streamsGrid.innerHTML = `<div class="no-data">${msg}</div>`;
         return;
     }
 
     if (currentViewMode === 'simple') {
         streamsGrid.innerHTML = '';
         streamsGrid.className = 'streams-grid view-simple';
-        streams.forEach(stream => {
+        filtered.forEach(stream => {
             const inputSource = inputs.find(i => i.id === stream.input_id);
             const card = document.createElement('div');
             card.className = `stream-card view-simple-card ${stream.active ? 'active' : ''} ${stream.error_message ? 'error-state' : ''}`;
@@ -299,7 +344,7 @@ function renderStreams() {
     } else if (currentViewMode === 'list') {
         streamsGrid.className = 'streams-list-container';
         let rowsHtml = '';
-        streams.forEach(stream => {
+        filtered.forEach(stream => {
             const inputSource = inputs.find(i => i.id === stream.input_id);
             const inputName = inputSource ? inputSource.name : 'Desconocido';
             
@@ -372,7 +417,7 @@ function renderStreams() {
     } else {
         streamsGrid.innerHTML = '';
         streamsGrid.className = 'streams-grid view-complete';
-        streams.forEach(stream => {
+        filtered.forEach(stream => {
             // Find input name
             const inputSource = inputs.find(i => i.id === stream.input_id);
             const inputName = inputSource ? inputSource.name : 'Desconocido';
@@ -2207,6 +2252,7 @@ window.onclick = function(e) {
     if (e.target === modalStream) modalStream.style.display = 'none';
     if (e.target === modalProbe) modalProbe.style.display = 'none';
     if (e.target === modalFs) modalFs.style.display = 'none';
+    if (e.target === modalOutputPack) modalOutputPack.style.display = 'none';
     if (e.target === modalSettings) {
         modalSettings.style.display = 'none';
         if (settingsLogsInterval) {
@@ -2292,6 +2338,8 @@ async function init() {
     await fetchStreams();
     await fetchOutputPacks();
     await updateStats();
+    // Restore saved filter state
+    changeStreamFilter(currentStreamFilter);
     changeViewMode(currentViewMode);
 
     // Start background pollers — skip full re-render when UI is busy (modal open / dropdown visible)
@@ -2300,7 +2348,7 @@ async function init() {
         await fetchInputs();
         await fetchStreams();
         await fetchOutputPacks();
-    }, 2000); // 2s is enough for live monitoring and avoids aggressive DOM churn
+    }, 2000);
 }
 
 let networkInterfaces = [];
@@ -2679,6 +2727,7 @@ formOutputPack.addEventListener('submit', async (e) => {
 
 // Set window global properties for inline onclicks
 window.changeViewMode = changeViewMode;
+window.changeStreamFilter = changeStreamFilter;
 window.toggleSimpleMenu = toggleSimpleMenu;
 window.toggleOutputPack = toggleOutputPack;
 window.editOutputPack = editOutputPack;

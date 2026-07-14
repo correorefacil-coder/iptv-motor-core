@@ -380,6 +380,11 @@ body {
     gap: 20px;
 }
 
+/* In simple view the grid must allow overflow so the dropdown menus can escape card bounds */
+.streams-grid.view-simple {
+    overflow: visible;
+}
+
 .no-data {
     grid-column: 1 / -1;
     text-align: center;
@@ -1166,11 +1171,12 @@ select option {
     max-width: 800px;
 }
 
-/* Simple view styles */
+/* Simple view grid */
 .streams-grid.view-simple {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+    overflow: visible; /* must not clip the dropdown menus */
 }
 
 .stream-card.view-simple-card {
@@ -1248,15 +1254,13 @@ select option {
 
 .simple-menu-dropdown {
     display: none;
-    position: absolute;
-    right: 16px;
-    top: 40px;
+    position: fixed; /* fixed instead of absolute: renders relative to viewport, never clipped by any parent */
     background: #0e1524;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8);
-    z-index: 50;
-    min-width: 140px;
+    z-index: 9999;
+    min-width: 150px;
     overflow: hidden;
 }
 

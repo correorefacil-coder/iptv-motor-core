@@ -91,12 +91,21 @@
 
             <!-- CHANNELS GRID (SPTS) -->
             <section class="grid-section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h2 class="section-title" style="margin-bottom: 0; flex: 1;">Canales Activos / Salidas</h2>
-                    <div class="view-controls" style="display: flex; gap: 8px;">
-                        <button class="btn btn-secondary btn-small view-btn active" id="view-btn-complete" onclick="changeViewMode('complete')">Completa</button>
-                        <button class="btn btn-secondary btn-small view-btn" id="view-btn-simple" onclick="changeViewMode('simple')">Simple</button>
-                        <button class="btn btn-secondary btn-small view-btn" id="view-btn-list" onclick="changeViewMode('list')">Lista</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+                    <h2 class="section-title" style="margin-bottom: 0;">Canales Activos / Salidas</h2>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <!-- Filter buttons -->
+                        <div style="display: flex; gap: 4px; background: rgba(255,255,255,0.04); padding: 3px; border-radius: 8px; border: 1px solid var(--border-color);">
+                            <button class="btn btn-secondary btn-small filter-btn active" id="filter-btn-all" onclick="changeStreamFilter('all')">Todos</button>
+                            <button class="btn btn-secondary btn-small filter-btn" id="filter-btn-active" onclick="changeStreamFilter('active')">Activos</button>
+                            <button class="btn btn-secondary btn-small filter-btn" id="filter-btn-inactive" onclick="changeStreamFilter('inactive')">Inactivos</button>
+                        </div>
+                        <!-- View switcher -->
+                        <div style="display: flex; gap: 4px; background: rgba(255,255,255,0.04); padding: 3px; border-radius: 8px; border: 1px solid var(--border-color);">
+                            <button class="btn btn-secondary btn-small view-btn active" id="view-btn-complete" onclick="changeViewMode('complete')">Completa</button>
+                            <button class="btn btn-secondary btn-small view-btn" id="view-btn-simple" onclick="changeViewMode('simple')">Simple</button>
+                            <button class="btn btn-secondary btn-small view-btn" id="view-btn-list" onclick="changeViewMode('list')">Lista</button>
+                        </div>
                     </div>
                 </div>
                 <div id="streams-grid" class="streams-grid">

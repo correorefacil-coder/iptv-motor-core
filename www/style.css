@@ -1254,7 +1254,9 @@ select option {
 
 .simple-menu-dropdown {
     display: none;
-    position: fixed; /* fixed instead of absolute: renders relative to viewport, never clipped by any parent */
+    position: absolute;
+    right: 16px;
+    top: 40px;
     background: #0e1524;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -1297,11 +1299,11 @@ select option {
 }
 
 /* Custom list toggle button styles */
-.view-btn {
+.view-btn, .filter-btn {
     border-radius: var(--radius-sm) !important;
 }
 
-.view-btn.active {
+.view-btn.active, .filter-btn.active {
     background: var(--accent-gradient) !important;
     border: none !important;
     color: white !important;

@@ -229,11 +229,6 @@ function changeViewMode(mode) {
 }
 
 function toggleSimpleMenu(streamId, btnEl) {
-    // Prevent event from bubbling so the document click handler doesn't immediately close the menu
-    if (btnEl && btnEl.stopPropagation) {
-        // btnEl might be the element itself (from 'this') or an event; normalise
-    }
-    
     const menu = document.getElementById(`menu-${streamId}`);
     if (!menu) return;
     
@@ -242,21 +237,22 @@ function toggleSimpleMenu(streamId, btnEl) {
     // Close all menus first
     document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
         el.style.display = 'none';
+        // reset z-index on parent cards
+        const card = el.closest('.stream-card');
+        if (card) card.style.zIndex = '';
     });
     
     if (!isOpen) {
-        // Position the fixed menu using the button's viewport coordinates
-        const rect = btnEl.getBoundingClientRect();
-        menu.style.top = (rect.bottom + 4) + 'px';
-        const menuWidth = 160;
-        const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
-        menu.style.left = Math.max(8, left) + 'px';
+        // Bring parent card to front
+        const card = btnEl.closest('.stream-card');
+        if (card) card.style.zIndex = '999';
+        
+        // Show menu
         menu.style.display = 'block';
     }
 }
 
 // Global click handler to close simple dropdowns
-// (uses capture=false so it fires AFTER button stopPropagation)
 document.addEventListener('click', (e) => {
     // Don't close if the click came from inside a simple-menu-dropdown or its button
     if (e.target.closest && (e.target.closest('.simple-menu-dropdown') || e.target.closest('.simple-menu-btn'))) {
@@ -264,6 +260,8 @@ document.addEventListener('click', (e) => {
     }
     document.querySelectorAll('.simple-menu-dropdown').forEach(el => {
         el.style.display = 'none';
+        const card = el.closest('.stream-card');
+        if (card) card.style.zIndex = '';
     });
 });
 
@@ -274,7 +272,11 @@ function changeStreamFilter(filter) {
     document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
     const activeBtn = document.getElementById(`filter-btn-${filter}`);
     if (activeBtn) activeBtn.classList.add('active');
+    
+    // Apply filter to all sections
     renderStreams();
+    renderInputs();
+    renderOutputPacks();
 }
 
 function renderStreams() {
@@ -498,13 +500,29 @@ function renderStreams() {
 }
 
 function renderInputs() {
-    if (inputs.length === 0) {
-        inputsContainer.innerHTML = `<div class="no-data">No hay Packs de Entrada configurados. Haz clic en "+ Agregar Pack" para empezar.</div>`;
+    // Sort alphabetically by name
+    const sortedInputs = [...inputs].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    
+    // Apply filter
+    let filtered;
+    if (currentStreamFilter === 'active') {
+        filtered = sortedInputs.filter(i => i.enabled !== false);
+    } else if (currentStreamFilter === 'inactive') {
+        filtered = sortedInputs.filter(i => i.enabled === false);
+    } else {
+        filtered = sortedInputs;
+    }
+
+    if (filtered.length === 0) {
+        const msg = inputs.length === 0
+            ? 'No hay Packs de Entrada configurados. Haz clic en "+ Agregar Pack" para empezar.'
+            : `No hay packs de entrada ${currentStreamFilter === 'active' ? 'activos' : 'inactivos'}.`;
+        inputsContainer.innerHTML = `<div class="no-data">${msg}</div>`;
         return;
     }
 
     inputsContainer.innerHTML = '';
-    inputs.forEach(input => {
+    filtered.forEach(input => {
         const card = document.createElement('div');
         card.className = `input-pack-card ${input.connected ? 'connected' : 'offline'} ${!input.enabled ? 'disabled' : ''}`;
         card.id = `input-${input.id}`;
@@ -2538,13 +2556,30 @@ async function fetchOutputPacks(forceRender = false) {
 
 function renderOutputPacks() {
     if (!outputPacksContainer) return;
-    if (outputPacks.length === 0) {
-        outputPacksContainer.innerHTML = `<div class="no-data">No hay Packs de Salida configurados. Haz clic en "+ Pack de Salida" para empezar.</div>`;
+    
+    // Sort alphabetically by name
+    const sortedPacks = [...outputPacks].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    
+    // Apply filter
+    let filtered;
+    if (currentStreamFilter === 'active') {
+        filtered = sortedPacks.filter(p => p.enabled !== false);
+    } else if (currentStreamFilter === 'inactive') {
+        filtered = sortedPacks.filter(p => p.enabled === false);
+    } else {
+        filtered = sortedPacks;
+    }
+
+    if (filtered.length === 0) {
+        const msg = outputPacks.length === 0
+            ? 'No hay Packs de Salida configurados. Haz clic en "+ Pack de Salida" para empezar.'
+            : `No hay packs de salida ${currentStreamFilter === 'active' ? 'activos' : 'inactivos'}.`;
+        outputPacksContainer.innerHTML = `<div class="no-data">${msg}</div>`;
         return;
     }
 
     outputPacksContainer.innerHTML = '';
-    outputPacks.forEach(pack => {
+    filtered.forEach(pack => {
         const card = document.createElement('div');
         card.className = `input-pack-card ${pack.active ? 'connected' : 'offline'} ${!pack.enabled ? 'disabled' : ''}`;
         card.id = `opack-${pack.id}`;

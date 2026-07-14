@@ -2681,6 +2681,9 @@ async function deleteOutputPack(id) {
 function populateOutputPackChannelsList() {
     let html = '';
     inputs.forEach(input => {
+        // Skip video packs (which are directories/files instead of live TS signals)
+        if (input.is_video_pack) return;
+        
         if (input.programs && input.programs.length > 0) {
             html += `<div style="font-weight: 600; font-size:12px; color: var(--accent); margin-top: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">${input.name}</div>`;
             input.programs.forEach(prog => {

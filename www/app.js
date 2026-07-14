@@ -2729,21 +2729,13 @@ function editOutputPack(id) {
 
     populateOutputPackChannelsList();
 
-    // Check selected channels safely
-    if (pack.channels && pack.channels.length > 0) {
-        pack.channels.forEach(ch => {
-            try {
-                // Escape input_id in selector to prevent syntax errors with weird characters
-                const escapedInputId = CSS.escape(ch.input_id);
-                const checkbox = document.querySelector(`.opack-channel-checkbox[data-input-id="${escapedInputId}"][data-prog-num="${ch.program_number}"]`);
-                if (checkbox) {
-                    checkbox.checked = true;
-                }
-            } catch (err) {
-                console.warn("No se pudo preseleccionar canal filtrado:", ch, err);
-            }
-        });
-    }
+    // Check selected channels
+    pack.channels.forEach(ch => {
+        const checkbox = document.querySelector(`.opack-channel-checkbox[data-input-id="${ch.input_id}"][data-prog-num="${ch.program_number}"]`);
+        if (checkbox) {
+            checkbox.checked = true;
+        }
+    });
 
     document.getElementById('modal-opack-title').textContent = 'Editar Pack de Salida';
     modalOutputPack.style.display = 'block';

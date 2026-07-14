@@ -1082,6 +1082,7 @@ formStream.addEventListener('submit', async (e) => {
         });
     }
 
+    if (outputs.length === 0) {
         alert('Por favor agrega al menos un destino de salida.');
         return;
     }

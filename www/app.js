@@ -228,8 +228,11 @@ function changeViewMode(mode) {
     renderStreams();
 }
 
-function toggleSimpleMenu(streamId, event) {
-    event.stopPropagation();
+function toggleSimpleMenu(streamId, btnEl) {
+    // Prevent event from bubbling so the document click handler doesn't immediately close the menu
+    if (btnEl && btnEl.stopPropagation) {
+        // btnEl might be the element itself (from 'this') or an event; normalise
+    }
     
     const menu = document.getElementById(`menu-${streamId}`);
     if (!menu) return;
@@ -242,11 +245,9 @@ function toggleSimpleMenu(streamId, event) {
     });
     
     if (!isOpen) {
-        // Position the menu relative to the button that was clicked, using viewport coords
-        const btn = event.currentTarget || event.target;
-        const rect = btn.getBoundingClientRect();
+        // Position the fixed menu using the button's viewport coordinates
+        const rect = btnEl.getBoundingClientRect();
         menu.style.top = (rect.bottom + 4) + 'px';
-        // Align to the right edge of the button
         const menuWidth = 160;
         const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
         menu.style.left = Math.max(8, left) + 'px';
@@ -324,7 +325,7 @@ function renderStreams() {
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span class="status-indicator" title="${stream.active ? 'Transmitiendo' : 'Inactivo'}"></span>
                         ${currentUser && currentUser.role === 'Consulta' ? '' : `
-                        <button class="simple-menu-btn" onclick="toggleSimpleMenu('${stream.id}', event)">•••</button>
+                        <button class="simple-menu-btn" onclick="event.stopPropagation(); toggleSimpleMenu('${stream.id}', this)">•••</button>
                         <div class="simple-menu-dropdown" id="menu-${stream.id}">
                             <button onclick="toggleStream('${stream.id}', ${!stream.enabled})">${stream.enabled ? 'Pausar' : 'Activar'}</button>
                             <button onclick="editStream('${stream.id}')">Editar</button>
@@ -2636,7 +2637,8 @@ function populateOutputPackChannelsList() {
     document.getElementById('opack-channels-list').innerHTML = html;
 }
 
-document.getElementById('btn-new-output-pack').addEventListener('click', () => {
+document.getElementById('btn-new-output-pack').addEventListener('click', (e) => {
+    e.stopPropagation();
     document.getElementById('opack-id').value = '';
     formOutputPack.reset();
     document.getElementById('opack-enabled').checked = true;

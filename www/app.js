@@ -129,20 +129,49 @@ async function updateStats() {
     }
 }
 
-async function fetchInputs() {
+// Helper: check if any modal is currently open or a dropdown is visible
+function isUIBusy() {
+    // Check if any modal is open
+    const modals = document.querySelectorAll('.modal');
+    for (const m of modals) {
+        if (m.style.display === 'block') return true;
+    }
+    // Check if any simple-menu dropdown is open
+    const dropdowns = document.querySelectorAll('.simple-menu-dropdown');
+    for (const d of dropdowns) {
+        if (d.style.display === 'block') return true;
+    }
+    return false;
+}
+
+let _lastInputsJson = '';
+let _lastStreamsJson = '';
+let _lastOutputPacksJson = '';
+
+async function fetchInputs(forceRender = false) {
     const data = await apiCall('/api/inputs');
     if (data) {
+        const json = JSON.stringify(data);
+        const changed = json !== _lastInputsJson;
+        _lastInputsJson = json;
         inputs = data;
-        renderInputs();
-        updateInputDropdowns();
+        if (forceRender || (changed && !isUIBusy())) {
+            renderInputs();
+            updateInputDropdowns();
+        }
     }
 }
 
-async function fetchStreams() {
+async function fetchStreams(forceRender = false) {
     const data = await apiCall('/api/streams');
     if (data) {
+        const json = JSON.stringify(data);
+        const changed = json !== _lastStreamsJson;
+        _lastStreamsJson = json;
         streams = data;
-        renderStreams();
+        if (forceRender || (changed && !isUIBusy())) {
+            renderStreams();
+        }
         calculateTotalBandwidths();
     }
 }
@@ -678,7 +707,7 @@ async function toggleStream(id, enable) {
         body: JSON.stringify(updated)
     });
     if (res) {
-        fetchStreams();
+        fetchStreams(true);
     }
 }
 
@@ -698,7 +727,7 @@ async function toggleInput(id, enable) {
         body: JSON.stringify(updated)
     });
     if (res) {
-        fetchInputs();
+        fetchInputs(true);
     }
 }
 
@@ -730,8 +759,8 @@ async function deleteInput(id) {
             method: 'DELETE'
         });
         if (res) {
-            fetchInputs();
-            fetchStreams();
+            fetchInputs(true);
+            fetchStreams(true);
         }
     }
 }
@@ -763,7 +792,7 @@ formInput.addEventListener('submit', async (e) => {
 
     if (res) {
         modalInput.style.display = 'none';
-        fetchInputs();
+        fetchInputs(true);
     } else {
         alert('Error al guardar la entrada. Revisa la consola o los logs.');
     }
@@ -932,7 +961,7 @@ async function deleteStream(id) {
             method: 'DELETE'
         });
         if (res) {
-            fetchStreams();
+            fetchStreams(true);
         }
     }
 }
@@ -1031,7 +1060,7 @@ formStream.addEventListener('submit', async (e) => {
 
     if (res) {
         modalStream.style.display = 'none';
-        fetchStreams();
+        fetchStreams(true);
     } else {
         alert('Error al guardar el canal. Revisa los logs o la salida.');
     }
@@ -2265,14 +2294,13 @@ async function init() {
     await updateStats();
     changeViewMode(currentViewMode);
 
-    // Start background pollers
+    // Start background pollers — skip full re-render when UI is busy (modal open / dropdown visible)
     setInterval(async () => {
         await updateStats();
-        // Silent updates in background
         await fetchInputs();
         await fetchStreams();
         await fetchOutputPacks();
-    }, 1000);
+    }, 2000); // 2s is enough for live monitoring and avoids aggressive DOM churn
 }
 
 let networkInterfaces = [];
@@ -2446,11 +2474,16 @@ function copyVlcUrl(url, event) {
     });
 }
 
-async function fetchOutputPacks() {
+async function fetchOutputPacks(forceRender = false) {
     const data = await apiCall('/api/output_packs');
     if (data) {
+        const json = JSON.stringify(data);
+        const changed = json !== _lastOutputPacksJson;
+        _lastOutputPacksJson = json;
         outputPacks = data;
-        renderOutputPacks();
+        if (forceRender || (changed && !isUIBusy())) {
+            renderOutputPacks();
+        }
     }
 }
 
@@ -2516,7 +2549,7 @@ async function toggleOutputPack(id, enabled) {
         body: JSON.stringify(payload)
     });
     if (res && res.success) {
-        fetchOutputPacks();
+        fetchOutputPacks(true);
     } else {
         alert('Error al cambiar estado del pack: ' + (res ? res.error : 'Desconocido'));
     }
@@ -2528,7 +2561,7 @@ async function deleteOutputPack(id) {
             method: 'DELETE'
         });
         if (res && res.success) {
-            fetchOutputPacks();
+            fetchOutputPacks(true);
         } else {
             alert('Error al eliminar pack: ' + (res ? res.error : 'Desconocido'));
         }
@@ -2638,7 +2671,7 @@ formOutputPack.addEventListener('submit', async (e) => {
 
     if (res && res.success) {
         modalOutputPack.style.display = 'none';
-        fetchOutputPacks();
+        fetchOutputPacks(true);
     } else {
         alert('Error al guardar el Pack de Salida: ' + (res ? res.error : 'Desconocido'));
     }
